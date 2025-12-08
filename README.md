@@ -210,7 +210,7 @@ Set the default font family, size, and line height for the editor:
 ```javascript
 const editor = new RichEditor('#editor', {
     defaultFontFamily: 'Georgia, serif',
-    defaultFontSize: '16px',
+    defaultFontSize: '18pt',
     defaultLineHeight: '1.6'
 });
 ```
@@ -218,7 +218,7 @@ const editor = new RichEditor('#editor', {
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `defaultFontFamily` | String | `'Arial, sans-serif'` | Default font for the editor |
-| `defaultFontSize` | String | `'14px'` | Default font size (use px, pt, em, rem) |
+| `defaultFontSize` | String | `'14pt'` | Default font size in pt (points) |
 | `defaultLineHeight` | String | `'1.5'` | Default line height |
 
 ### Adding Custom Fonts
@@ -279,21 +279,21 @@ const editor = new RichEditor('#editor', {
 
 ### Custom Font Sizes
 
-Customize the available font sizes:
+Customize the available font sizes (use `pt` for consistency):
 
 ```javascript
 const editor = new RichEditor('#editor', {
     fontSizes: [
-        { value: '10px', label: '10px' },
-        { value: '12px', label: '12px' },
-        { value: '14px', label: '14px' },
-        { value: '16px', label: '16px' },
-        { value: '18px', label: '18px' },
-        { value: '20px', label: '20px' },
-        { value: '24px', label: '24px' },
-        { value: '28px', label: '28px' },
-        { value: '32px', label: '32px' },
-        { value: '48px', label: '48px' }
+        { value: '8pt', label: '8pt' },
+        { value: '9pt', label: '9pt' },
+        { value: '10pt', label: '10pt' },
+        { value: '11pt', label: '11pt' },
+        { value: '12pt', label: '12pt' },
+        { value: '14pt', label: '14pt' },
+        { value: '16pt', label: '16pt' },
+        { value: '18pt', label: '18pt' },
+        { value: '24pt', label: '24pt' },
+        { value: '36pt', label: '36pt' }
     ]
 });
 ```
@@ -322,7 +322,7 @@ const editor = new RichEditor('#editor', {
 const editor = new RichEditor('#editor', {
     // Set defaults
     defaultFontFamily: 'Roboto, sans-serif',
-    defaultFontSize: '16px',
+    defaultFontSize: '14pt',
     defaultLineHeight: '1.6',
     
     // Custom font families
@@ -334,13 +334,15 @@ const editor = new RichEditor('#editor', {
         { value: 'Arial, sans-serif', label: 'Arial' }
     ],
     
-    // Custom font sizes
+    // Custom font sizes (in pt)
     fontSizes: [
-        { value: '12px', label: 'Small' },
-        { value: '16px', label: 'Normal' },
-        { value: '20px', label: 'Large' },
-        { value: '24px', label: 'X-Large' },
-        { value: '32px', label: 'XX-Large' }
+        { value: '8pt', label: '8pt' },
+        { value: '10pt', label: '10pt' },
+        { value: '12pt', label: '12pt' },
+        { value: '14pt', label: '14pt' },
+        { value: '18pt', label: '18pt' },
+        { value: '24pt', label: '24pt' },
+        { value: '36pt', label: '36pt' }
     ],
     
     // Custom line heights
