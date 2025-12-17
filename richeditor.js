@@ -13,12 +13,12 @@
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║   Description:                                                            ║
- * ║   A comprehensive, free, and open-source rich text editor similar to      ║
- * ║   TinyMCE with all standard features and plugin support. Built with       ║
- * ║   vanilla JavaScript - no dependencies required.                          ║
+ * ║   A comprehensive, free, and open-source rich text editor with all        ║
+ * ║   standard features and plugin support. Built with vanilla JavaScript     ║
+ * ║   - no dependencies required.                                             ║
  * ║                                                                           ║
  * ║   Features:                                                               ║
- * ║   • TinyMCE-style menu bar (Edit, Insert, Format, Table)                  ║
+ * ║   • Professional menu bar (Edit, Insert, Format, Table)                   ║
  * ║   • Rich text formatting (bold, italic, underline, etc.)                  ║
  * ║   • 15+ font families and 7 font sizes                                    ║
  * ║   • Line height control                                                   ║
@@ -120,6 +120,182 @@
             });
             
             return doc.body.innerHTML;
+        },
+
+        /**
+         * Clean HTML pasted from Microsoft Word while preserving formatting
+         */
+        cleanWordHTML: function(html) {
+            // Check if this is Word content
+            const isWordContent = html.includes('mso-') || 
+                                  html.includes('MsoNormal') || 
+                                  html.includes('urn:schemas-microsoft-com') ||
+                                  html.includes('xmlns:w=') ||
+                                  html.includes('xmlns:o=');
+            
+            if (!isWordContent) {
+                return html;
+            }
+            
+            let cleaned = html;
+            
+            // Remove Word XML tags and namespaces
+            cleaned = cleaned.replace(/<o:p[^>]*>[\s\S]*?<\/o:p>/gi, '');
+            cleaned = cleaned.replace(/<w:[^>]*>[\s\S]*?<\/w:[^>]*>/gi, '');
+            cleaned = cleaned.replace(/<m:[^>]*>[\s\S]*?<\/m:[^>]*>/gi, '');
+            cleaned = cleaned.replace(/<st1:[^>]*>[\s\S]*?<\/st1:[^>]*>/gi, '');
+            
+            // Remove XML declarations and namespaces
+            cleaned = cleaned.replace(/<\?xml[^>]*>/gi, '');
+            cleaned = cleaned.replace(/xmlns[^=]*="[^"]*"/gi, '');
+            
+            // Remove conditional comments
+            cleaned = cleaned.replace(/<!--\[if[^>]*>[\s\S]*?<!\[endif\]-->/gi, '');
+            cleaned = cleaned.replace(/<!--\[if[^>]*>[\s\S]*?-->/gi, '');
+            cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, '');
+            
+            // Remove Word-specific tags but keep content
+            cleaned = cleaned.replace(/<\/?(meta|link|style|xml|font)[^>]*>/gi, '');
+            
+            // Parse and process
+            const doc = new DOMParser().parseFromString(cleaned, 'text/html');
+            
+            // Process all elements
+            const processElement = (el) => {
+                // Remove Word-specific classes
+                if (el.className) {
+                    el.className = el.className.replace(/Mso[a-zA-Z]+/g, '').trim();
+                    if (!el.className) {
+                        el.removeAttribute('class');
+                    }
+                }
+                
+                // Get computed/inline styles to preserve
+                const style = el.getAttribute('style') || '';
+                const preservedStyles = [];
+                
+                // Extract important style properties
+                const styleMap = {
+                    'font-family': /font-family:\s*([^;]+)/i,
+                    'font-size': /font-size:\s*([^;]+)/i,
+                    'color': /(?:^|;)\s*color:\s*([^;]+)/i,
+                    'background-color': /background-color:\s*([^;]+)/i,
+                    'background': /(?:^|;)\s*background:\s*([^;]+)/i,
+                    'font-weight': /font-weight:\s*([^;]+)/i,
+                    'font-style': /font-style:\s*([^;]+)/i,
+                    'text-decoration': /text-decoration:\s*([^;]+)/i,
+                    'text-align': /text-align:\s*([^;]+)/i,
+                    'line-height': /line-height:\s*([^;]+)/i,
+                    'margin-left': /margin-left:\s*([^;]+)/i,
+                    'padding-left': /padding-left:\s*([^;]+)/i
+                };
+                
+                for (const [prop, regex] of Object.entries(styleMap)) {
+                    const match = style.match(regex);
+                    if (match) {
+                        let value = match[1].trim();
+                        
+                        // Clean up font-family
+                        if (prop === 'font-family') {
+                            // Remove quotes and normalize
+                            value = value.replace(/["']/g, '');
+                            // Map common Word fonts
+                            if (value.toLowerCase().includes('calibri')) {
+                                value = 'Calibri, Arial, sans-serif';
+                            } else if (value.toLowerCase().includes('times')) {
+                                value = 'Times New Roman, serif';
+                            } else if (value.toLowerCase().includes('arial')) {
+                                value = 'Arial, sans-serif';
+                            }
+                        }
+                        
+                        // Convert font-size from pt to match editor
+                        if (prop === 'font-size') {
+                            // Keep pt values, convert px if needed
+                            if (value.includes('pt')) {
+                                // Round to nearest standard size
+                                const ptVal = parseFloat(value);
+                                const standardSizes = [8, 10, 12, 14, 18, 24, 36];
+                                const closest = standardSizes.reduce((prev, curr) => 
+                                    Math.abs(curr - ptVal) < Math.abs(prev - ptVal) ? curr : prev
+                                );
+                                value = closest + 'pt';
+                            }
+                        }
+                        
+                        // Skip mso-* properties
+                        if (!value.includes('mso-')) {
+                            preservedStyles.push(`${prop}: ${value}`);
+                        }
+                    }
+                }
+                
+                // Set cleaned style
+                if (preservedStyles.length > 0) {
+                    el.setAttribute('style', preservedStyles.join('; '));
+                } else {
+                    el.removeAttribute('style');
+                }
+                
+                // Remove Word-specific attributes
+                const attrsToRemove = [];
+                for (const attr of el.attributes) {
+                    if (attr.name.startsWith('v:') || 
+                        attr.name.startsWith('o:') ||
+                        attr.name === 'lang' ||
+                        attr.name === 'xml:lang') {
+                        attrsToRemove.push(attr.name);
+                    }
+                }
+                attrsToRemove.forEach(attr => el.removeAttribute(attr));
+            };
+            
+            // Process all elements
+            doc.body.querySelectorAll('*').forEach(processElement);
+            
+            // Convert <b> to <strong> and <i> to <em> for consistency
+            doc.body.querySelectorAll('b').forEach(el => {
+                const strong = document.createElement('strong');
+                strong.innerHTML = el.innerHTML;
+                if (el.getAttribute('style')) {
+                    strong.setAttribute('style', el.getAttribute('style'));
+                }
+                el.parentNode.replaceChild(strong, el);
+            });
+            
+            doc.body.querySelectorAll('i').forEach(el => {
+                const em = document.createElement('em');
+                em.innerHTML = el.innerHTML;
+                if (el.getAttribute('style')) {
+                    em.setAttribute('style', el.getAttribute('style'));
+                }
+                el.parentNode.replaceChild(em, el);
+            });
+            
+            // Remove empty spans
+            doc.body.querySelectorAll('span').forEach(span => {
+                if (!span.getAttribute('style') && !span.className && span.innerHTML === span.textContent) {
+                    span.outerHTML = span.innerHTML;
+                }
+            });
+            
+            // Clean up empty paragraphs with only &nbsp;
+            doc.body.querySelectorAll('p').forEach(p => {
+                if (p.innerHTML.trim() === '&nbsp;' || p.innerHTML.trim() === '') {
+                    p.innerHTML = '<br>';
+                }
+            });
+            
+            // Get cleaned HTML
+            let result = doc.body.innerHTML;
+            
+            // Final cleanup
+            result = result.replace(/\s+/g, ' '); // Normalize whitespace
+            result = result.replace(/>\s+</g, '><'); // Remove whitespace between tags
+            result = result.replace(/<p><\/p>/gi, ''); // Remove empty paragraphs
+            result = result.replace(/<span><\/span>/gi, ''); // Remove empty spans
+            
+            return result;
         },
 
         /**
@@ -378,8 +554,14 @@
             { value: 'pre', label: 'Pre' }
         ],
         
-        // Show menu bar (TinyMCE style)
+        // Show menu bar (professional style)
         showMenuBar: true,
+        
+        // Enforce inline styles on all elements (for compatibility with external renderers)
+        enforceInlineStyles: true,
+        
+        // Default text color
+        defaultColor: '#000000',
         
         // Default font family (applied to editor on init)
         defaultFontFamily: 'Arial, sans-serif',
@@ -390,7 +572,7 @@
         // Default line height
         defaultLineHeight: '1.5',
         
-        // Font families (matching TinyMCE)
+        // Font families (matching RichEditor)
         fontFamilies: [
             { value: 'Andale Mono, monospace', label: 'Andale Mono' },
             { value: 'Arial, sans-serif', label: 'Arial' },
@@ -409,7 +591,7 @@
             { value: 'Verdana, sans-serif', label: 'Verdana' }
         ],
         
-        // Font sizes (matching TinyMCE - in pt)
+        // Font sizes (matching RichEditor - in pt)
         fontSizes: [
             { value: '8pt', label: '8pt' },
             { value: '10pt', label: '10pt' },
@@ -462,7 +644,8 @@
         pasteSettings: {
             cleanPaste: true,
             stripStyles: false,
-            keepStructure: true
+            keepStructure: true,
+            showPasteDialog: true  // Show paste options dialog (like Word/Outlook)
         },
         
         // Auto-save
@@ -536,6 +719,9 @@
             this.autoSaveTimer = null;
             this.plugins = {};
             this.savedSelection = null;
+            this.lastSelected = {};  // Track last selected font/size/lineHeight for toolbar dropdowns
+            this.lastSelectedTime = 0;
+            this.lastSelectedFormat = {};  // Track last selected for Format menu submenus
             
             // Initialize editor
             this.init();
@@ -565,6 +751,9 @@
                 this.setContent(this.originalElement.innerHTML);
             }
             
+            // Initialize selection at start of editor
+            this.initializeSelection();
+            
             // Auto-save setup
             if (this.options.autoSave.enabled) {
                 this.setupAutoSave();
@@ -572,6 +761,24 @@
             
             // Trigger init event
             this.triggerEvent('onInit', { editor: this });
+        }
+
+        /**
+         * Initialize selection at start of editor
+         */
+        initializeSelection() {
+            // Set cursor at start of first element
+            const firstElement = this.editor.querySelector('p, div, span') || this.editor.firstChild;
+            if (firstElement) {
+                try {
+                    const range = document.createRange();
+                    range.setStart(firstElement, 0);
+                    range.collapse(true);
+                    this.savedSelection = range;
+                } catch (e) {
+                    // Ignore errors
+                }
+            }
         }
 
         /**
@@ -597,7 +804,7 @@
         }
 
         /**
-         * Create the menu bar (TinyMCE style)
+         * Create the menu bar (professional style)
          */
         createMenuBar() {
             this.menuBar = Utils.createElement('div', { className: 'richeditor-menubar' });
@@ -697,6 +904,8 @@
                     submenu: this.options.fontFamilies.map(opt => ({
                         label: opt.label,
                         style: `font-family: ${opt.value}`,
+                        type: 'fontFamily',
+                        value: opt.value,
                         action: () => this.execCommand('fontName', opt.value)
                     }))
                 });
@@ -706,6 +915,8 @@
                     label: 'Font sizes',
                     submenu: this.options.fontSizes.map(opt => ({
                         label: opt.label,
+                        type: 'fontSize',
+                        value: opt.value,
                         action: () => this.applyFontSize(opt.value)
                     }))
                 });
@@ -715,6 +926,8 @@
                     label: 'Align',
                     submenu: this.options.alignOptions.map(opt => ({
                         label: opt.label,
+                        type: 'align',
+                        value: opt.command,
                         command: opt.command
                     }))
                 });
@@ -724,6 +937,8 @@
                     label: 'Line height',
                     submenu: this.options.lineHeights.map(opt => ({
                         label: opt.label,
+                        type: 'lineHeight',
+                        value: opt.value,
                         action: () => this.applyLineHeight(opt.value)
                     }))
                 });
@@ -741,6 +956,28 @@
                         { label: 'Cut', shortcut: 'Ctrl+X', command: 'cut' },
                         { label: 'Copy', shortcut: 'Ctrl+C', command: 'copy' },
                         { label: 'Paste', shortcut: 'Ctrl+V', command: 'paste' },
+                        { type: 'separator' },
+                        { 
+                            label: 'Show Paste Options Dialog', 
+                            type: 'toggle',
+                            id: 'showPasteDialog',
+                            checked: this.options.pasteSettings.showPasteDialog,
+                            action: () => this.togglePasteDialog()
+                        },
+                        { 
+                            label: 'Default: Keep Formatting', 
+                            type: 'toggle',
+                            id: 'pasteKeepFormatting',
+                            checked: !this.options.pasteSettings.stripStyles,
+                            action: () => this.setDefaultPasteMode('formatted')
+                        },
+                        { 
+                            label: 'Default: Plain Text', 
+                            type: 'toggle',
+                            id: 'pastePlainText',
+                            checked: this.options.pasteSettings.stripStyles,
+                            action: () => this.setDefaultPasteMode('plain')
+                        },
                         { type: 'separator' },
                         { label: 'Select All', shortcut: 'Ctrl+A', command: 'selectAll' }
                     ]
@@ -799,6 +1036,40 @@
             menu.items.forEach(item => {
                 if (item.type === 'separator') {
                     dropdown.appendChild(Utils.createElement('div', { className: 'richeditor-menu-separator' }));
+                } else if (item.type === 'toggle') {
+                    // Toggle menu item with checkbox
+                    const menuOption = Utils.createElement('div', { 
+                        className: 'richeditor-menu-option richeditor-menu-toggle' 
+                    });
+                    
+                    // Checkbox indicator
+                    const checkSpan = Utils.createElement('span', { 
+                        className: 'richeditor-menu-check',
+                        innerHTML: item.checked ? '✓' : ''
+                    });
+                    if (item.id) {
+                        checkSpan.id = 'richeditor-toggle-' + item.id;
+                    }
+                    menuOption.appendChild(checkSpan);
+                    
+                    const labelSpan = Utils.createElement('span', { 
+                        className: 'richeditor-menu-label',
+                        textContent: item.label 
+                    });
+                    menuOption.appendChild(labelSpan);
+                    
+                    menuOption.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (item.action) {
+                            item.action();
+                        }
+                        // Update checkmark
+                        const isChecked = checkSpan.innerHTML === '✓';
+                        checkSpan.innerHTML = isChecked ? '' : '✓';
+                        this.closeAllMenus();
+                    });
+                    
+                    dropdown.appendChild(menuOption);
                 } else if (item.submenu) {
                     const submenuItem = this.createSubmenuItem(item);
                     dropdown.appendChild(submenuItem);
@@ -882,6 +1153,21 @@
                 } else {
                     const subOption = Utils.createElement('div', { className: 'richeditor-menu-option' });
                     
+                    // Add data attributes for active state tracking
+                    if (subItem.type) {
+                        subOption.dataset.type = subItem.type;
+                        
+                        // Add checkmark span for active indication
+                        const checkSpan = Utils.createElement('span', { 
+                            className: 'richeditor-menu-check',
+                            innerHTML: ''
+                        });
+                        subOption.appendChild(checkSpan);
+                    }
+                    if (subItem.value) {
+                        subOption.dataset.value = subItem.value;
+                    }
+                    
                     if (subItem.style) {
                         subOption.style.cssText = subItem.style;
                     }
@@ -903,6 +1189,32 @@
                     subOption.addEventListener('click', (e) => {
                         e.stopPropagation();
                         this.restoreSelection();
+                        
+                        // Track the selected value for immediate UI updates
+                        if (subItem.type && subItem.value) {
+                            // Store for Format menu submenu
+                            this.lastSelectedFormat = this.lastSelectedFormat || {};
+                            this.lastSelectedFormat[subItem.type] = {
+                                value: subItem.value,
+                                time: Date.now()
+                            };
+                            
+                            // Also store for toolbar dropdown sync
+                            this.lastSelected = this.lastSelected || {};
+                            this.lastSelected[subItem.type] = subItem.value;
+                            this.lastSelectedTime = Date.now();
+                        }
+                        
+                        // Immediately update active state in this submenu
+                        submenu.querySelectorAll('.richeditor-menu-option[data-type]').forEach(opt => {
+                            opt.classList.remove('active');
+                            const checkSpan = opt.querySelector('.richeditor-menu-check');
+                            if (checkSpan) checkSpan.innerHTML = '';
+                        });
+                        subOption.classList.add('active');
+                        const checkSpan = subOption.querySelector('.richeditor-menu-check');
+                        if (checkSpan) checkSpan.innerHTML = '✓';
+                        
                         if (subItem.command) {
                             this.execCommand(subItem.command);
                         } else if (subItem.action) {
@@ -915,10 +1227,126 @@
                 }
             });
             
+            // Update active state when submenu is shown
+            submenuTrigger.addEventListener('mouseenter', () => {
+                this.updateSubmenuActiveState(submenu);
+            });
+            
             submenuWrapper.appendChild(submenuTrigger);
             submenuWrapper.appendChild(submenu);
             
             return submenuWrapper;
+        }
+
+        /**
+         * Update active state of submenu items based on current selection
+         */
+        updateSubmenuActiveState(submenu) {
+            // Get the type of items in this submenu
+            const firstItem = submenu.querySelector('.richeditor-menu-option[data-type]');
+            const submenuType = firstItem ? firstItem.dataset.type : null;
+            
+            // Check if we have a recent selection for this type (within last 10 seconds)
+            let recentSelection = null;
+            if (submenuType && this.lastSelectedFormat && this.lastSelectedFormat[submenuType]) {
+                const sel = this.lastSelectedFormat[submenuType];
+                if (Date.now() - sel.time < 10000) {
+                    recentSelection = sel.value;
+                }
+            }
+            
+            // Use saved selection if available (since menu opening loses focus)
+            let node = null;
+            
+            if (this.savedSelection) {
+                node = this.savedSelection.startContainer;
+                if (node && node.nodeType === Node.TEXT_NODE) {
+                    node = node.parentElement;
+                }
+            } else {
+                const selection = window.getSelection();
+                if (selection.rangeCount) {
+                    node = selection.anchorNode;
+                    if (node && node.nodeType === Node.TEXT_NODE) {
+                        node = node.parentElement;
+                    }
+                }
+            }
+            
+            if (!node || !this.editor.contains(node)) {
+                node = this.editor;
+            }
+            
+            const computedStyle = window.getComputedStyle(node);
+            
+            // Get current values from computed style
+            const currentFont = computedStyle.fontFamily.toLowerCase().replace(/['"]/g, '');
+            const currentFontSize = this.getInlineFontSize(node) || computedStyle.fontSize;
+            const currentLineHeight = computedStyle.lineHeight;
+            
+            // Convert font size to pt for comparison
+            let currentPt = null;
+            if (currentFontSize) {
+                if (currentFontSize.includes('pt')) {
+                    currentPt = parseFloat(currentFontSize);
+                } else {
+                    currentPt = Math.round(parseFloat(currentFontSize) * 0.75);
+                }
+            }
+            
+            // Update each menu item
+            submenu.querySelectorAll('.richeditor-menu-option[data-type]').forEach(item => {
+                item.classList.remove('active');
+                const checkSpan = item.querySelector('.richeditor-menu-check');
+                if (checkSpan) checkSpan.innerHTML = '';
+                
+                const type = item.dataset.type;
+                const value = item.dataset.value;
+                
+                if (!type || !value) return;
+                
+                let isActive = false;
+                
+                // First priority: check if this matches the recent selection
+                if (recentSelection && value === recentSelection) {
+                    isActive = true;
+                } else if (!recentSelection) {
+                    // No recent selection - check computed styles
+                    if (type === 'fontFamily') {
+                        const fontValue = value.toLowerCase().replace(/['"]/g, '').split(',')[0].trim();
+                        const currentFontPrimary = currentFont.split(',')[0].trim();
+                        if (currentFontPrimary.includes(fontValue) || fontValue.includes(currentFontPrimary)) {
+                            isActive = true;
+                        }
+                    } else if (type === 'fontSize') {
+                        const sizePt = parseFloat(value);
+                        if (currentPt && Math.abs(sizePt - currentPt) <= 1) {
+                            isActive = true;
+                        }
+                    } else if (type === 'lineHeight') {
+                        const lhValue = parseFloat(value);
+                        let currentLH = parseFloat(currentLineHeight);
+                        if (currentLineHeight === 'normal') {
+                            currentLH = 1.2;
+                        } else if (currentLineHeight.includes('px')) {
+                            const fontSize = parseFloat(computedStyle.fontSize);
+                            currentLH = parseFloat(currentLineHeight) / fontSize;
+                        }
+                        if (Math.abs(lhValue - currentLH) < 0.15) {
+                            isActive = true;
+                        }
+                    } else if (type === 'align') {
+                        if (document.queryCommandState(value)) {
+                            isActive = true;
+                        }
+                    }
+                }
+                
+                if (isActive) {
+                    item.classList.add('active');
+                    if (checkSpan) checkSpan.innerHTML = '✓';
+                }
+            });
         }
 
         /**
@@ -978,20 +1406,31 @@
             
             this.saveState();
             
+            // Get default cell style
+            const cellStyle = this.getTableCellStyle();
+            
             switch (action) {
                 case 'insertRowBefore':
                     if (row) {
                         const newRow = row.cloneNode(true);
-                        Array.from(newRow.cells).forEach(c => c.innerHTML = '&nbsp;');
+                        Array.from(newRow.cells).forEach(c => {
+                            c.innerHTML = '<br>';
+                            c.setAttribute('style', cellStyle);
+                        });
                         row.parentNode.insertBefore(newRow, row);
+                        this.updateTableColgroup(table);
                     }
                     break;
                     
                 case 'insertRowAfter':
                     if (row) {
                         const newRow = row.cloneNode(true);
-                        Array.from(newRow.cells).forEach(c => c.innerHTML = '&nbsp;');
+                        Array.from(newRow.cells).forEach(c => {
+                            c.innerHTML = '<br>';
+                            c.setAttribute('style', cellStyle);
+                        });
                         row.parentNode.insertBefore(newRow, row.nextSibling);
+                        this.updateTableColgroup(table);
                     }
                     break;
                     
@@ -1000,8 +1439,10 @@
                         const cellIndex = cell.cellIndex;
                         Array.from(table.rows).forEach(r => {
                             const newCell = r.insertCell(cellIndex);
-                            newCell.innerHTML = '&nbsp;';
+                            newCell.innerHTML = '<br>';
+                            newCell.setAttribute('style', cellStyle);
                         });
+                        this.updateTableColgroup(table);
                     }
                     break;
                     
@@ -1010,8 +1451,10 @@
                         const cellIndex = cell.cellIndex + 1;
                         Array.from(table.rows).forEach(r => {
                             const newCell = r.insertCell(cellIndex);
-                            newCell.innerHTML = '&nbsp;';
+                            newCell.innerHTML = '<br>';
+                            newCell.setAttribute('style', cellStyle);
                         });
+                        this.updateTableColgroup(table);
                     }
                     break;
                     
@@ -1027,6 +1470,7 @@
                         Array.from(table.rows).forEach(r => {
                             if (r.cells[cellIndex]) r.deleteCell(cellIndex);
                         });
+                        this.updateTableColgroup(table);
                     }
                     break;
                     
@@ -1036,6 +1480,118 @@
             }
             
             this.syncContent();
+        }
+
+        /**
+         * Get default table cell style
+         */
+        getTableCellStyle() {
+            // Extract just the primary font name (e.g., "Arial" from "Arial, sans-serif")
+            let fontFamily = this.options.defaultFontFamily || 'Arial, sans-serif';
+            const primaryFont = fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+            const fontSize = this.options.defaultFontSize || '14pt';
+            return `border: 1px solid rgb(0, 0, 0); padding: 4px; font-family: ${primaryFont}; font-size: ${fontSize};`;
+        }
+
+        /**
+         * Update table colgroup to reflect current column count
+         */
+        updateTableColgroup(table) {
+            const cols = table.rows[0] ? table.rows[0].cells.length : 0;
+            if (cols === 0) return;
+            
+            const colWidth = (100 / cols).toFixed(4);
+            
+            // Find or create colgroup
+            let colgroup = table.querySelector('colgroup');
+            if (!colgroup) {
+                colgroup = document.createElement('colgroup');
+                table.insertBefore(colgroup, table.firstChild);
+            }
+            
+            // Rebuild col elements
+            colgroup.innerHTML = '';
+            for (let i = 0; i < cols; i++) {
+                const col = document.createElement('col');
+                col.style.width = colWidth + '%';
+                colgroup.appendChild(col);
+            }
+        }
+
+        /**
+         * Get default paragraph style string (for inline styles)
+         */
+        getDefaultParagraphStyle() {
+            const fontFamily = this.options.defaultFontFamily || 'Arial, sans-serif';
+            const primaryFont = fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+            const fontSize = this.options.defaultFontSize || '14pt';
+            const color = this.options.defaultColor || '#000000';
+            return `font-family: ${primaryFont}; font-size: ${fontSize}; color: ${color};`;
+        }
+
+        /**
+         * Apply inline styles to all block elements that don't have them
+         */
+        applyInlineStylesToContent() {
+            if (!this.options.enforceInlineStyles) return;
+            
+            const defaultStyle = this.getDefaultParagraphStyle();
+            const blockElements = this.editor.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.richeditor-video-wrapper)');
+            
+            blockElements.forEach(el => {
+                // Check if element has font-family style
+                if (!el.style.fontFamily) {
+                    // Apply default styles
+                    const currentStyle = el.getAttribute('style') || '';
+                    if (currentStyle) {
+                        el.setAttribute('style', currentStyle + ' ' + defaultStyle);
+                    } else {
+                        el.setAttribute('style', defaultStyle);
+                    }
+                }
+            });
+        }
+
+        /**
+         * Create a new paragraph with default inline styles
+         */
+        createStyledParagraph(content = '<br>') {
+            const p = document.createElement('p');
+            if (this.options.enforceInlineStyles) {
+                p.setAttribute('style', this.getDefaultParagraphStyle());
+            }
+            p.innerHTML = content;
+            return p;
+        }
+
+        /**
+         * Ensure content has inline styles on all paragraphs
+         */
+        ensureInlineStyles() {
+            if (!this.options.enforceInlineStyles) return;
+            
+            // Get all direct children of editor
+            const children = Array.from(this.editor.childNodes);
+            
+            // If editor is empty or has only text, wrap in styled paragraph
+            if (children.length === 0 || (children.length === 1 && children[0].nodeType === Node.TEXT_NODE)) {
+                const content = this.editor.innerHTML || '<br>';
+                this.editor.innerHTML = '';
+                const p = this.createStyledParagraph(content);
+                this.editor.appendChild(p);
+                return;
+            }
+            
+            // Apply styles to block elements
+            this.applyInlineStylesToContent();
+            
+            // Wrap orphan text nodes in styled paragraphs
+            children.forEach(child => {
+                if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
+                    const p = this.createStyledParagraph(child.textContent);
+                    this.editor.replaceChild(p, child);
+                }
+            });
         }
 
         /**
@@ -1207,6 +1763,7 @@
                     });
                     item.style.fontFamily = opt.value;
                     item.textContent = opt.label;
+                    item.dataset.value = opt.value;  // Add data-value for active state tracking
                     // Mark default font as active
                     if (opt.value.toLowerCase().includes(this.options.defaultFontFamily.split(',')[0].toLowerCase().trim())) {
                         item.classList.add('active');
@@ -1214,7 +1771,22 @@
                     item.addEventListener('click', () => {
                         this.restoreSelection();
                         this.execCommand('fontName', opt.value);
+                        
+                        // Track selection for menu sync (both toolbar and Format menu)
+                        this.lastSelected = this.lastSelected || {};
+                        this.lastSelected.fontFamily = opt.value;
+                        this.lastSelectedTime = Date.now();
+                        
+                        this.lastSelectedFormat = this.lastSelectedFormat || {};
+                        this.lastSelectedFormat.fontFamily = { value: opt.value, time: Date.now() };
+                        
+                        // Update dropdown label immediately
                         label.textContent = opt.label;
+                        // Update active state on all items immediately
+                        menu.querySelectorAll('.richeditor-dropdown-item').forEach(i => {
+                            i.classList.remove('active');
+                        });
+                        item.classList.add('active');
                         menu.classList.remove('show');
                     });
                     menu.appendChild(item);
@@ -1233,7 +1805,22 @@
                     item.addEventListener('click', () => {
                         this.restoreSelection();
                         this.applyFontSize(opt.value);
+                        
+                        // Track selection for menu sync (both toolbar and Format menu)
+                        this.lastSelected = this.lastSelected || {};
+                        this.lastSelected.fontSize = opt.value;
+                        this.lastSelectedTime = Date.now();
+                        
+                        this.lastSelectedFormat = this.lastSelectedFormat || {};
+                        this.lastSelectedFormat.fontSize = { value: opt.value, time: Date.now() };
+                        
+                        // Update dropdown label immediately
                         label.textContent = opt.label;
+                        // Update active state on all items immediately
+                        menu.querySelectorAll('.richeditor-dropdown-item').forEach(i => {
+                            i.classList.remove('active');
+                        });
+                        item.classList.add('active');
                         menu.classList.remove('show');
                     });
                     menu.appendChild(item);
@@ -1252,7 +1839,22 @@
                     item.addEventListener('click', () => {
                         this.restoreSelection();
                         this.applyLineHeight(opt.value);
+                        
+                        // Track selection for menu sync (both toolbar and Format menu)
+                        this.lastSelected = this.lastSelected || {};
+                        this.lastSelected.lineHeight = opt.value;
+                        this.lastSelectedTime = Date.now();
+                        
+                        this.lastSelectedFormat = this.lastSelectedFormat || {};
+                        this.lastSelectedFormat.lineHeight = { value: opt.value, time: Date.now() };
+                        
+                        // Update dropdown label immediately
                         label.textContent = opt.label;
+                        // Update active state on all items immediately
+                        menu.querySelectorAll('.richeditor-dropdown-item').forEach(i => {
+                            i.classList.remove('active');
+                        });
+                        item.classList.add('active');
                         menu.classList.remove('show');
                     });
                     menu.appendChild(item);
@@ -1269,6 +1871,12 @@
                 document.querySelectorAll('.richeditor-dropdown-menu.show').forEach(m => {
                     if (m !== menu) m.classList.remove('show');
                 });
+                
+                // Update active state before showing dropdown
+                if (!menu.classList.contains('show')) {
+                    this.updateDropdownActiveState(name, menu);
+                }
+                
                 menu.classList.toggle('show');
             });
             
@@ -1283,22 +1891,136 @@
         }
 
         /**
+         * Update dropdown menu active state based on current selection
+         */
+        updateDropdownActiveState(name, menu) {
+            // Check if we have recently selected values (within last 5 seconds)
+            const recentlySelected = this.lastSelected && this.lastSelectedTime && 
+                                    (Date.now() - this.lastSelectedTime) < 5000;
+            
+            // Use saved selection if available (since dropdown opening may lose focus)
+            let node = null;
+            
+            if (this.savedSelection) {
+                node = this.savedSelection.startContainer;
+                if (node && node.nodeType === Node.TEXT_NODE) {
+                    node = node.parentElement;
+                }
+            } else {
+                const selection = window.getSelection();
+                if (!selection.rangeCount) return;
+                node = selection.anchorNode;
+                if (node && node.nodeType === Node.TEXT_NODE) {
+                    node = node.parentElement;
+                }
+            }
+            
+            if (!node || !this.editor.contains(node)) {
+                // Fallback to editor element itself for default styles
+                node = this.editor;
+            }
+            
+            const computedStyle = window.getComputedStyle(node);
+            
+            if (name === 'fontFamily') {
+                const lastSelectedFont = recentlySelected ? this.lastSelected.fontFamily : null;
+                const currentFont = computedStyle.fontFamily.toLowerCase().replace(/['"]/g, '');
+                
+                menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
+                    item.classList.remove('active');
+                    const itemValue = item.dataset.value || '';
+                    
+                    // Check lastSelected first
+                    if (lastSelectedFont && itemValue === lastSelectedFont) {
+                        item.classList.add('active');
+                    } else if (!lastSelectedFont) {
+                        // Fall back to computed style check
+                        const itemValueLower = itemValue.toLowerCase().replace(/['"]/g, '');
+                        const primaryFont = itemValueLower.split(',')[0].trim();
+                        if (currentFont.includes(primaryFont)) {
+                            item.classList.add('active');
+                        }
+                    }
+                });
+            } else if (name === 'fontSize') {
+                const lastSelectedSize = recentlySelected ? this.lastSelected.fontSize : null;
+                const currentFontSize = this.getInlineFontSize(node) || computedStyle.fontSize;
+                let currentPt = null;
+                
+                if (currentFontSize) {
+                    if (currentFontSize.includes('pt')) {
+                        currentPt = parseFloat(currentFontSize);
+                    } else {
+                        currentPt = Math.round(parseFloat(currentFontSize) * 0.75);
+                    }
+                }
+                
+                menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
+                    item.classList.remove('active');
+                    const itemValue = item.dataset.value;
+                    
+                    // Check lastSelected first
+                    if (lastSelectedSize && itemValue === lastSelectedSize) {
+                        item.classList.add('active');
+                    } else if (!lastSelectedSize) {
+                        // Fall back to computed style check
+                        const itemPt = parseFloat(itemValue);
+                        if (currentPt && Math.abs(itemPt - currentPt) <= 1) {
+                            item.classList.add('active');
+                        }
+                    }
+                });
+            } else if (name === 'lineHeight') {
+                const lastSelectedLH = recentlySelected ? this.lastSelected.lineHeight : null;
+                const currentLineHeight = computedStyle.lineHeight;
+                let currentLH = parseFloat(currentLineHeight);
+                
+                if (currentLineHeight === 'normal') {
+                    currentLH = 1.2;
+                } else if (currentLineHeight.includes('px')) {
+                    const fontSize = parseFloat(computedStyle.fontSize);
+                    currentLH = parseFloat(currentLineHeight) / fontSize;
+                }
+                
+                menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
+                    item.classList.remove('active');
+                    const itemValue = item.dataset.value;
+                    
+                    // Check lastSelected first
+                    if (lastSelectedLH && itemValue === lastSelectedLH) {
+                        item.classList.add('active');
+                    } else if (!lastSelectedLH) {
+                        // Fall back to computed style check
+                        const itemLH = parseFloat(itemValue);
+                        if (Math.abs(itemLH - currentLH) < 0.1) {
+                            item.classList.add('active');
+                        }
+                    }
+                });
+            }
+        }
+
+        /**
          * Create the editor content area
          */
         createEditorArea() {
             // Create editor container
             this.editorContainer = Utils.createElement('div', { className: 'richeditor-container' });
             
-            // Create contenteditable area
+            // Create contenteditable area with styled initial paragraph
+            const initialParagraph = this.options.enforceInlineStyles 
+                ? `<p style="${this.getDefaultParagraphStyle()}"><br></p>`
+                : '<p><br></p>';
+            
             this.editor = Utils.createElement('div', {
                 className: 'richeditor-content',
-                innerHTML: '<p><br></p>'
+                innerHTML: initialParagraph
             });
             this.editor.setAttribute('contenteditable', 'true');
             this.editor.setAttribute('spellcheck', this.options.spellcheck);
             this.editor.setAttribute('data-placeholder', this.options.placeholder);
             
-            // Apply default font styles
+            // Apply default font styles to container (fallback)
             if (this.options.defaultFontFamily) {
                 this.editor.style.fontFamily = this.options.defaultFontFamily;
             }
@@ -1419,6 +2141,9 @@
             
             // Editor content changes
             this.editor.addEventListener('input', Utils.debounce(() => {
+                // Apply inline styles to elements that don't have them
+                this.ensureInlineStyles();
+                
                 this.syncContent();
                 this.updateWordCount();
                 this.triggerEvent('onChange', { content: this.getContent() });
@@ -1428,6 +2153,17 @@
             this.editor.addEventListener('focus', () => {
                 this.wrapper.classList.add('focused');
                 this.triggerEvent('onFocus');
+            });
+            
+            // Save selection when clicking in editor
+            this.editor.addEventListener('click', () => {
+                // Small delay to let selection settle
+                setTimeout(() => this.saveSelection(), 10);
+            });
+            
+            // Also save selection on mouseup (for drag selections)
+            this.editor.addEventListener('mouseup', () => {
+                setTimeout(() => this.saveSelection(), 10);
             });
             
             this.editor.addEventListener('blur', () => {
@@ -1537,6 +2273,14 @@
                     }
                 }
             }
+            
+            // Enter key handling for inline styles
+            if (e.key === 'Enter' && !e.shiftKey && this.options.enforceInlineStyles) {
+                // Let browser handle Enter normally, then apply styles after
+                setTimeout(() => {
+                    this.ensureInlineStyles();
+                }, 0);
+            }
         }
 
         /**
@@ -1547,33 +2291,327 @@
             
             e.preventDefault();
             
-            let content = '';
-            
             if (e.clipboardData) {
-                // Try to get HTML content
+                // Get both HTML and plain text content
                 const html = e.clipboardData.getData('text/html');
                 const text = e.clipboardData.getData('text/plain');
                 
-                if (html && this.options.pasteSettings.keepStructure) {
-                    content = Utils.sanitizeHTML(html, this.options.allowedTags);
-                    
-                    if (this.options.pasteSettings.stripStyles) {
-                        const temp = document.createElement('div');
-                        temp.innerHTML = content;
-                        temp.querySelectorAll('*').forEach(el => {
-                            el.removeAttribute('style');
-                            el.removeAttribute('class');
-                        });
-                        content = temp.innerHTML;
-                    }
+                // Check if content is from Word/external source (has HTML formatting)
+                const hasFormatting = html && (
+                    html.includes('mso-') || 
+                    html.includes('MsoNormal') || 
+                    html.includes('<b>') || 
+                    html.includes('<i>') || 
+                    html.includes('<strong>') ||
+                    html.includes('<em>') ||
+                    html.includes('style=') ||
+                    html.includes('<font') ||
+                    html.includes('<span')
+                );
+                
+                // Show paste options dialog if enabled and content has formatting
+                if (this.options.pasteSettings.showPasteDialog && hasFormatting) {
+                    this.showPasteOptionsDialog(html, text);
                 } else {
-                    // Convert plain text to HTML
-                    content = text.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+                    // Use default paste behavior
+                    this.executePaste(html, text, !this.options.pasteSettings.stripStyles);
+                }
+            }
+        }
+
+        /**
+         * Show paste options dialog (like Word/Outlook)
+         */
+        showPasteOptionsDialog(html, text) {
+            // Save current selection
+            this.saveSelection();
+            
+            // Remove existing dialog if any
+            const existing = document.querySelector('.richeditor-paste-dialog');
+            if (existing) existing.remove();
+            
+            // Create dialog
+            const dialog = Utils.createElement('div', { className: 'richeditor-paste-dialog' });
+            
+            dialog.innerHTML = `
+                <div class="richeditor-paste-dialog-content">
+                    <div class="richeditor-paste-dialog-title">Paste Options</div>
+                    <div class="richeditor-paste-options">
+                        <button type="button" class="richeditor-paste-option" data-mode="formatted" title="Keep Source Formatting">
+                            <div class="richeditor-paste-option-icon">
+                                <svg viewBox="0 0 24 24" width="32" height="32">
+                                    <path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                                </svg>
+                            </div>
+                            <div class="richeditor-paste-option-label">Keep Source Formatting</div>
+                        </button>
+                        <button type="button" class="richeditor-paste-option" data-mode="plain" title="Paste as Plain Text">
+                            <div class="richeditor-paste-option-icon">
+                                <svg viewBox="0 0 24 24" width="32" height="32">
+                                    <path fill="currentColor" d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/>
+                                </svg>
+                            </div>
+                            <div class="richeditor-paste-option-label">Plain Text</div>
+                        </button>
+                    </div>
+                    <div class="richeditor-paste-dialog-footer">
+                        <label class="richeditor-paste-remember">
+                            <input type="checkbox" id="richeditor-paste-remember"> Remember my choice
+                        </label>
+                        <button type="button" class="richeditor-paste-cancel">Cancel</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(dialog);
+            
+            // Position dialog near cursor or center
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                const rect = range.getBoundingClientRect();
+                const dialogContent = dialog.querySelector('.richeditor-paste-dialog-content');
+                
+                // Position below the cursor
+                if (rect.top > 0) {
+                    dialogContent.style.position = 'fixed';
+                    dialogContent.style.top = Math.min(rect.bottom + 10, window.innerHeight - 200) + 'px';
+                    dialogContent.style.left = Math.max(rect.left, 20) + 'px';
                 }
             }
             
+            // Handle option clicks
+            dialog.querySelectorAll('.richeditor-paste-option').forEach(option => {
+                option.addEventListener('click', () => {
+                    const mode = option.dataset.mode;
+                    const remember = document.getElementById('richeditor-paste-remember').checked;
+                    
+                    // Remember choice if checked
+                    if (remember) {
+                        this.options.pasteSettings.showPasteDialog = false;
+                        this.options.pasteSettings.stripStyles = (mode === 'plain');
+                        
+                        // Update menu checkbox
+                        const checkbox = document.getElementById('richeditor-toggle-pasteAsPlainText');
+                        if (checkbox) {
+                            checkbox.innerHTML = mode === 'plain' ? '✓' : '';
+                        }
+                    }
+                    
+                    // Close dialog
+                    dialog.remove();
+                    
+                    // Restore selection and paste
+                    this.restoreSelection();
+                    this.executePaste(html, text, mode === 'formatted');
+                });
+            });
+            
+            // Handle cancel
+            dialog.querySelector('.richeditor-paste-cancel').addEventListener('click', () => {
+                dialog.remove();
+            });
+            
+            // Close on click outside
+            dialog.addEventListener('click', (e) => {
+                if (e.target === dialog) {
+                    dialog.remove();
+                }
+            });
+            
+            // Close on Escape
+            const escHandler = (e) => {
+                if (e.key === 'Escape') {
+                    dialog.remove();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
+        }
+
+        /**
+         * Execute paste with specified mode
+         */
+        executePaste(html, text, keepFormatting) {
+            let content = '';
+            
+            if (keepFormatting && html && this.options.pasteSettings.keepStructure) {
+                // Paste with formatting - clean Word-specific markup
+                content = Utils.cleanWordHTML(html);
+                
+                // Then sanitize for security
+                content = Utils.sanitizeHTML(content, this.options.allowedTags);
+                
+                // Apply inline styles to pasted content if enforceInlineStyles is enabled
+                if (this.options.enforceInlineStyles) {
+                    content = this.applyInlineStylesToHTML(content);
+                }
+            } else {
+                // Paste as plain text with inline styles
+                content = this.convertPlainTextToHTML(text);
+            }
+            
             this.execCommand('insertHTML', content);
-            this.triggerEvent('onPaste', { content });
+            
+            // Ensure all elements have inline styles after paste
+            if (this.options.enforceInlineStyles) {
+                setTimeout(() => this.ensureInlineStyles(), 0);
+            }
+            
+            this.triggerEvent('onPaste', { content, keepFormatting });
+        }
+
+        /**
+         * Apply inline styles to HTML string
+         */
+        applyInlineStylesToHTML(html) {
+            const temp = document.createElement('div');
+            temp.innerHTML = html;
+            
+            const defaultStyle = this.getDefaultParagraphStyle();
+            const blockElements = temp.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+            
+            blockElements.forEach(el => {
+                // Only add styles if element doesn't have font-family
+                if (!el.style.fontFamily) {
+                    const currentStyle = el.getAttribute('style') || '';
+                    if (currentStyle) {
+                        el.setAttribute('style', currentStyle + ' ' + defaultStyle);
+                    } else {
+                        el.setAttribute('style', defaultStyle);
+                    }
+                }
+            });
+            
+            return temp.innerHTML;
+        }
+
+        /**
+         * Convert plain text to HTML with proper paragraphs
+         * Applies inline styles for compatibility with external renderers
+         */
+        convertPlainTextToHTML(text) {
+            if (!text) return '';
+            
+            // Escape HTML entities
+            const escapeHTML = (str) => {
+                return str
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            };
+            
+            // Get paragraph style
+            const pStyle = this.options.enforceInlineStyles ? ` style="${this.getDefaultParagraphStyle()}"` : '';
+            
+            // Split by double newlines for paragraphs
+            const paragraphs = text.split(/\n\n+/);
+            
+            // Return paragraphs with inline styles
+            return paragraphs.map(p => {
+                // Convert single newlines to <br>
+                const escaped = escapeHTML(p);
+                const withBreaks = escaped.replace(/\n/g, '<br>');
+                return `<p${pStyle}>${withBreaks}</p>`;
+            }).join('');
+        }
+
+        /**
+         * Toggle paste options dialog on/off
+         */
+        togglePasteDialog() {
+            this.options.pasteSettings.showPasteDialog = !this.options.pasteSettings.showPasteDialog;
+            
+            const status = this.options.pasteSettings.showPasteDialog ? 'Enabled' : 'Disabled';
+            this.showNotification(`Paste Options Dialog: ${status}`);
+        }
+
+        /**
+         * Set default paste mode
+         */
+        setDefaultPasteMode(mode) {
+            const isPlain = (mode === 'plain');
+            this.options.pasteSettings.stripStyles = isPlain;
+            
+            // Update menu checkboxes
+            const keepFormattingCheckbox = document.getElementById('richeditor-toggle-pasteKeepFormatting');
+            const plainTextCheckbox = document.getElementById('richeditor-toggle-pastePlainText');
+            
+            if (keepFormattingCheckbox) {
+                keepFormattingCheckbox.innerHTML = isPlain ? '' : '✓';
+            }
+            if (plainTextCheckbox) {
+                plainTextCheckbox.innerHTML = isPlain ? '✓' : '';
+            }
+            
+            const modeText = isPlain ? 'Plain Text' : 'Keep Formatting';
+            this.showNotification(`Default paste mode: ${modeText}`);
+            
+            this.triggerEvent('onPasteModeChange', { 
+                stripStyles: isPlain,
+                mode: mode
+            });
+        }
+
+        /**
+         * Toggle paste mode between formatted and plain text (legacy)
+         */
+        togglePasteMode() {
+            const newMode = this.options.pasteSettings.stripStyles ? 'formatted' : 'plain';
+            this.setDefaultPasteMode(newMode);
+        }
+
+        /**
+         * Show a temporary notification
+         */
+        showNotification(message, duration = 2000) {
+            // Remove existing notification if any
+            const existing = this.wrapper.querySelector('.richeditor-notification');
+            if (existing) {
+                existing.remove();
+            }
+            
+            const notification = Utils.createElement('div', {
+                className: 'richeditor-notification',
+                textContent: message
+            });
+            
+            this.wrapper.appendChild(notification);
+            
+            // Fade in
+            setTimeout(() => notification.classList.add('show'), 10);
+            
+            // Remove after duration
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => notification.remove(), 300);
+            }, duration);
+        }
+
+        /**
+         * Get current paste mode
+         */
+        getPasteMode() {
+            return this.options.pasteSettings.stripStyles ? 'plain' : 'formatted';
+        }
+
+        /**
+         * Set paste mode
+         */
+        setPasteMode(mode) {
+            if (mode === 'plain') {
+                this.options.pasteSettings.stripStyles = true;
+            } else if (mode === 'formatted') {
+                this.options.pasteSettings.stripStyles = false;
+            }
+            
+            // Update menu checkbox if it exists
+            const checkbox = document.getElementById('richeditor-toggle-pasteAsPlainText');
+            if (checkbox) {
+                checkbox.innerHTML = this.options.pasteSettings.stripStyles ? '✓' : '';
+            }
         }
 
         /**
@@ -1631,20 +2669,492 @@
         execCommand(command, value = null) {
             this.saveState();
             
-            // Restore selection if we have a saved one
-            if (this.savedSelection) {
-                this.restoreSelection();
-            }
-            
+            // Focus editor first
             this.editor.focus();
+            
+            // Check current selection
+            let selection = window.getSelection();
+            
+            // If no selection in editor, try to restore saved one
+            if (!selection.rangeCount || !this.editor.contains(selection.anchorNode)) {
+                if (this.savedSelection) {
+                    try {
+                        selection.removeAllRanges();
+                        selection.addRange(this.savedSelection);
+                    } catch (e) {
+                        this.savedSelection = null;
+                    }
+                }
+            }
             
             if (command === 'formatBlock' && value) {
                 value = `<${value}>`;
             }
             
+            // Special handling for text formatting in table cells
+            // execCommand can wrap entire tables, so use DOM manipulation instead
+            if (this.isSelectionInTable() && 
+                (command === 'bold' || command === 'italic' || command === 'underline' || command === 'strikeThrough')) {
+                
+                // Check if we're actually in a cell (not just near a table)
+                const cell = this.getSelectionCell();
+                
+                if (cell) {
+                    let handled = false;
+                    
+                    if (command === 'underline') {
+                        if (this.isInsideTextDecoration('underline')) {
+                            handled = this.removeTextDecoration('underline');
+                        } else {
+                            handled = this.applyFormattingInCell('u');
+                        }
+                    } else if (command === 'strikeThrough') {
+                        if (this.isInsideTextDecoration('strikeThrough')) {
+                            handled = this.removeTextDecoration('strikeThrough');
+                        } else {
+                            handled = this.applyFormattingInCell('strike');
+                        }
+                    } else if (command === 'bold') {
+                        if (this.isInsideFormatting('bold')) {
+                            handled = this.removeFormatting('bold');
+                        } else {
+                            handled = this.applyFormattingInCell('b');
+                        }
+                    } else if (command === 'italic') {
+                        if (this.isInsideFormatting('italic')) {
+                            handled = this.removeFormatting('italic');
+                        } else {
+                            handled = this.applyFormattingInCell('i');
+                        }
+                    }
+                }
+                
+                // Always return for table-related formatting - never fall through to execCommand
+                // This prevents execCommand from wrapping tables
+                selection = window.getSelection();
+                if (selection.rangeCount > 0 && this.editor.contains(selection.anchorNode)) {
+                    this.savedSelection = selection.getRangeAt(0).cloneRange();
+                }
+                this.syncContent();
+                this.updateToolbarState();
+                return;
+            }
+            
+            // Execute the command
             document.execCommand(command, false, value);
+            
+            // Immediately update font dropdown when fontName is used
+            if (command === 'fontName' && value) {
+                this.updateFontDropdownImmediate(value);
+            }
+            
+            // Update saved selection to reflect new DOM state
+            selection = window.getSelection();
+            if (selection.rangeCount > 0 && this.editor.contains(selection.anchorNode)) {
+                this.savedSelection = selection.getRangeAt(0).cloneRange();
+            }
+            
             this.syncContent();
             this.updateToolbarState();
+        }
+
+        /**
+         * Check if current selection is inside a table cell
+         */
+        isSelectionInTable() {
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return false;
+            
+            const range = selection.getRangeAt(0);
+            
+            // Check multiple possible nodes
+            const nodesToCheck = [
+                selection.anchorNode,
+                selection.focusNode,
+                range.commonAncestorContainer,
+                range.startContainer,
+                range.endContainer
+            ];
+            
+            for (const startNode of nodesToCheck) {
+                if (!startNode) continue;
+                
+                let node = startNode;
+                // If it's a text node, start from parent
+                if (node.nodeType === Node.TEXT_NODE) {
+                    node = node.parentElement;
+                }
+                
+                // Walk up to find table-related elements
+                while (node && node !== this.editor) {
+                    const tagName = node.tagName;
+                    if (tagName === 'TD' || tagName === 'TH') {
+                        return true;
+                    }
+                    // Also check if we're at TR or TABLE level (cursor might be between cells)
+                    if (tagName === 'TR' || tagName === 'TBODY' || tagName === 'THEAD' || tagName === 'TABLE') {
+                        return true;
+                    }
+                    node = node.parentElement;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * Get the table cell containing the current selection, or null if not in a cell
+         */
+        getSelectionCell() {
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return null;
+            
+            let node = selection.anchorNode;
+            if (node && node.nodeType === Node.TEXT_NODE) {
+                node = node.parentElement;
+            }
+            
+            while (node && node !== this.editor) {
+                if (node.tagName === 'TD' || node.tagName === 'TH') {
+                    return node;
+                }
+                node = node.parentElement;
+            }
+            return null;
+        }
+
+        /**
+         * Constrain selection to stay within the current table cell
+         * This prevents formatting commands from wrapping entire tables
+         */
+        constrainSelectionToCell() {
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return;
+            
+            const range = selection.getRangeAt(0);
+            
+            // Find the table cell containing the selection
+            let cell = null;
+            let node = range.commonAncestorContainer;
+            if (node.nodeType === Node.TEXT_NODE) {
+                node = node.parentElement;
+            }
+            
+            while (node && node !== this.editor) {
+                if (node.tagName === 'TD' || node.tagName === 'TH') {
+                    cell = node;
+                    break;
+                }
+                node = node.parentElement;
+            }
+            
+            if (!cell) return;
+            
+            // Check if the selection extends beyond this cell
+            // If so, constrain it to the cell contents
+            const cellRange = document.createRange();
+            cellRange.selectNodeContents(cell);
+            
+            // Check if start is before cell start
+            let startNode = range.startContainer;
+            let startOffset = range.startOffset;
+            if (range.compareBoundaryPoints(Range.START_TO_START, cellRange) < 0) {
+                startNode = cellRange.startContainer;
+                startOffset = cellRange.startOffset;
+            }
+            
+            // Check if end is after cell end
+            let endNode = range.endContainer;
+            let endOffset = range.endOffset;
+            if (range.compareBoundaryPoints(Range.END_TO_END, cellRange) > 0) {
+                endNode = cellRange.endContainer;
+                endOffset = cellRange.endOffset;
+            }
+            
+            // Apply constrained selection
+            try {
+                const newRange = document.createRange();
+                newRange.setStart(startNode, startOffset);
+                newRange.setEnd(endNode, endOffset);
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+            } catch (e) {
+                // If something goes wrong, just select the cell contents
+                selection.removeAllRanges();
+                selection.addRange(cellRange);
+            }
+        }
+
+        /**
+         * Check if cursor is inside text decoration (underline/strikethrough)
+         */
+        isInsideTextDecoration(command) {
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return false;
+            
+            const tagName = command === 'underline' ? 'U' : 'STRIKE';
+            const altTagName = command === 'underline' ? 'U' : 'S';
+            const decorationType = command === 'underline' ? 'underline' : 'line-through';
+            
+            let node = selection.anchorNode;
+            if (node.nodeType === Node.TEXT_NODE) {
+                node = node.parentElement;
+            }
+            
+            while (node && node !== this.editor) {
+                if (node.tagName === tagName || node.tagName === altTagName) {
+                    return true;
+                }
+                if (node.style && node.style.textDecoration) {
+                    if (node.style.textDecoration.toLowerCase().includes(decorationType)) {
+                        return true;
+                    }
+                }
+                node = node.parentElement;
+            }
+            return false;
+        }
+
+        /**
+         * Check if cursor is inside bold/italic formatting
+         */
+        isInsideFormatting(command) {
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return false;
+            
+            const tagName = command === 'bold' ? 'B' : 'I';
+            const altTagName = command === 'bold' ? 'STRONG' : 'EM';
+            const styleProp = command === 'bold' ? 'fontWeight' : 'fontStyle';
+            
+            let node = selection.anchorNode;
+            if (node.nodeType === Node.TEXT_NODE) {
+                node = node.parentElement;
+            }
+            
+            while (node && node !== this.editor) {
+                if (node.tagName === tagName || node.tagName === altTagName) {
+                    return true;
+                }
+                if (node.style && node.style[styleProp]) {
+                    const value = node.style[styleProp].toLowerCase();
+                    if ((command === 'bold' && (value === 'bold' || parseInt(value) >= 700)) ||
+                        (command === 'italic' && value === 'italic')) {
+                        return true;
+                    }
+                }
+                node = node.parentElement;
+            }
+            return false;
+        }
+
+        /**
+         * Remove text decoration (underline/strikethrough) in table cells
+         */
+        removeTextDecoration(command) {
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return false;
+            
+            const range = selection.getRangeAt(0);
+            const tagName = command === 'underline' ? 'U' : 'STRIKE';
+            const altTagName = command === 'underline' ? 'U' : 'S';
+            const decorationType = command === 'underline' ? 'underline' : 'line-through';
+            
+            // Find the formatting element
+            let parentFormatEl = null;
+            let isStyleBased = false;
+            let node = range.commonAncestorContainer;
+            
+            if (node.nodeType === Node.TEXT_NODE) {
+                node = node.parentElement;
+            }
+            
+            // Walk up to find formatting element (but stop at table cell)
+            while (node && node !== this.editor && node.tagName !== 'TD' && node.tagName !== 'TH') {
+                if (node.tagName === tagName || node.tagName === altTagName) {
+                    parentFormatEl = node;
+                    break;
+                }
+                if (node.style && node.style.textDecoration) {
+                    const decoration = node.style.textDecoration.toLowerCase();
+                    if (decoration.includes(decorationType)) {
+                        parentFormatEl = node;
+                        isStyleBased = true;
+                        break;
+                    }
+                }
+                node = node.parentElement;
+            }
+            
+            if (!parentFormatEl) return false;
+            
+            // Remove the formatting
+            if (isStyleBased) {
+                const currentDecoration = parentFormatEl.style.textDecoration;
+                const newDecoration = currentDecoration
+                    .replace(new RegExp(decorationType, 'gi'), '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                
+                if (newDecoration) {
+                    parentFormatEl.style.textDecoration = newDecoration;
+                } else {
+                    parentFormatEl.style.textDecoration = '';
+                    if (parentFormatEl.tagName === 'SPAN' && 
+                        (!parentFormatEl.getAttribute('style') || parentFormatEl.getAttribute('style').trim() === '')) {
+                        this.unwrapElement(parentFormatEl);
+                    }
+                }
+            } else {
+                this.unwrapElement(parentFormatEl);
+            }
+            
+            return true;
+        }
+
+        /**
+         * Remove bold/italic formatting in table cells
+         */
+        removeFormatting(command) {
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return false;
+            
+            const range = selection.getRangeAt(0);
+            const tagName = command === 'bold' ? 'B' : 'I';
+            const altTagName = command === 'bold' ? 'STRONG' : 'EM';
+            const styleProp = command === 'bold' ? 'fontWeight' : 'fontStyle';
+            
+            // Find the formatting element
+            let parentFormatEl = null;
+            let isStyleBased = false;
+            let node = range.commonAncestorContainer;
+            
+            if (node.nodeType === Node.TEXT_NODE) {
+                node = node.parentElement;
+            }
+            
+            // Walk up to find formatting element (but stop at table cell)
+            while (node && node !== this.editor && node.tagName !== 'TD' && node.tagName !== 'TH') {
+                if (node.tagName === tagName || node.tagName === altTagName) {
+                    parentFormatEl = node;
+                    break;
+                }
+                if (node.style && node.style[styleProp]) {
+                    const value = node.style[styleProp].toLowerCase();
+                    if ((command === 'bold' && (value === 'bold' || parseInt(value) >= 700)) ||
+                        (command === 'italic' && value === 'italic')) {
+                        parentFormatEl = node;
+                        isStyleBased = true;
+                        break;
+                    }
+                }
+                node = node.parentElement;
+            }
+            
+            if (!parentFormatEl) return false;
+            
+            // Remove the formatting
+            if (isStyleBased) {
+                parentFormatEl.style[styleProp] = '';
+                if (parentFormatEl.tagName === 'SPAN' && 
+                    (!parentFormatEl.getAttribute('style') || parentFormatEl.getAttribute('style').trim() === '')) {
+                    this.unwrapElement(parentFormatEl);
+                }
+            } else {
+                this.unwrapElement(parentFormatEl);
+            }
+            
+            return true;
+        }
+
+        /**
+         * Unwrap an element, keeping its children
+         */
+        unwrapElement(element) {
+            const parent = element.parentNode;
+            if (!parent) return;
+            
+            // Move all children before the element
+            while (element.firstChild) {
+                parent.insertBefore(element.firstChild, element);
+            }
+            
+            // Remove the now-empty element
+            parent.removeChild(element);
+            
+            // Normalize to merge adjacent text nodes
+            parent.normalize();
+        }
+
+        /**
+         * Apply formatting in a table cell using DOM manipulation
+         * This avoids execCommand which can wrap entire tables
+         */
+        applyFormattingInCell(tagName) {
+            // Find the cell containing the selection
+            const cell = this.getSelectionCell();
+            if (!cell) return false;
+            
+            // Check if cell has meaningful text content (not just <br>)
+            const textContent = cell.textContent;
+            const hasContent = textContent && textContent.trim().length > 0;
+            
+            if (!hasContent) {
+                // Empty cell - nothing to format
+                return false;
+            }
+            
+            // Create wrapper element
+            const wrapper = document.createElement(tagName);
+            
+            // Move all cell contents into wrapper
+            while (cell.firstChild) {
+                wrapper.appendChild(cell.firstChild);
+            }
+            cell.appendChild(wrapper);
+            
+            // Set cursor at end of wrapper
+            try {
+                const selection = window.getSelection();
+                const newRange = document.createRange();
+                newRange.selectNodeContents(wrapper);
+                newRange.collapse(false); // Collapse to end
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+            } catch (e) {
+                // Ignore selection errors
+            }
+            
+            return true;
+        }
+
+        /**
+         * Immediately update font dropdown label and active state
+         * (Don't rely on computed styles which may not have updated yet)
+         */
+        updateFontDropdownImmediate(fontValue) {
+            const fontFamilyDropdown = this.toolbar.querySelector('[data-dropdown-type="fontFamily"]');
+            if (!fontFamilyDropdown) return;
+            
+            const label = fontFamilyDropdown.querySelector('.richeditor-dropdown-label');
+            const menu = fontFamilyDropdown.querySelector('.richeditor-dropdown-menu');
+            
+            // Find matching font in options
+            const matchedFont = this.options.fontFamilies.find(f => {
+                return f.value.toLowerCase().replace(/['"]/g, '') === fontValue.toLowerCase().replace(/['"]/g, '');
+            });
+            
+            if (matchedFont) {
+                if (label) {
+                    label.textContent = matchedFont.label;
+                }
+                if (menu) {
+                    menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
+                        item.classList.remove('active');
+                        if (item.dataset.value === matchedFont.value) {
+                            item.classList.add('active');
+                        }
+                    });
+                }
+            }
         }
 
         /**
@@ -1743,6 +3253,7 @@
                     if (range.toString() === spanRange.toString()) {
                         parentSpan.style.fontSize = size;
                         this.syncContent();
+                        this.updateFontSizeDropdownImmediate(size);
                         this.updateToolbarState();
                         return;
                     }
@@ -1783,7 +3294,36 @@
             }
             
             this.syncContent();
+            this.updateFontSizeDropdownImmediate(size);
             this.updateToolbarState();
+        }
+
+        /**
+         * Immediately update font size dropdown label and active state
+         */
+        updateFontSizeDropdownImmediate(sizeValue) {
+            const fontSizeDropdown = this.toolbar.querySelector('[data-dropdown-type="fontSize"]');
+            if (!fontSizeDropdown) return;
+            
+            const label = fontSizeDropdown.querySelector('.richeditor-dropdown-label');
+            const menu = fontSizeDropdown.querySelector('.richeditor-dropdown-menu');
+            
+            // Find matching size in options
+            const matchedSize = this.options.fontSizes.find(s => s.value === sizeValue);
+            
+            if (matchedSize) {
+                if (label) {
+                    label.textContent = matchedSize.label;
+                }
+                if (menu) {
+                    menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
+                        item.classList.remove('active');
+                        if (item.dataset.value === matchedSize.value) {
+                            item.classList.add('active');
+                        }
+                    });
+                }
+            }
         }
 
         /**
@@ -2083,6 +3623,15 @@
          * Show table dialog
          */
         showTableDialog() {
+            // Save selection before dialog opens
+            this.saveSelection();
+            
+            let isLocked = false; // Track if selection is locked
+            let selectedRows = 3;
+            let selectedCols = 3;
+            
+            const self = this; // Save reference for callback
+            
             const dialog = this.createDialog('Insert Table', `
                 <div class="richeditor-table-grid" id="richeditor-table-grid">
                     ${this.generateTableGrid()}
@@ -2098,33 +3647,82 @@
                         <input type="number" id="richeditor-table-cols" min="1" max="20" value="3" style="width: 70px;">
                     </div>
                 </div>
-            `, () => {
-                const rows = parseInt(document.getElementById('richeditor-table-rows').value) || 3;
-                const cols = parseInt(document.getElementById('richeditor-table-cols').value) || 3;
-                this.insertTable(rows, cols);
+            `, function() {
+                // OK button clicked - use the tracked selection values
+                self.insertTable(selectedRows, selectedCols);
             });
             
-            // Grid hover handling
-            const grid = document.getElementById('richeditor-table-grid');
-            const sizeDisplay = document.getElementById('richeditor-table-size');
-            const rowsInput = document.getElementById('richeditor-table-rows');
-            const colsInput = document.getElementById('richeditor-table-cols');
+            const grid = dialog.querySelector('#richeditor-table-grid');
+            const sizeDisplay = dialog.querySelector('#richeditor-table-size');
+            const rowsInput = dialog.querySelector('#richeditor-table-rows');
+            const colsInput = dialog.querySelector('#richeditor-table-cols');
+            
+            if (!grid) return;
+            
+            // Sync input changes to tracked variables
+            if (rowsInput) {
+                rowsInput.addEventListener('change', () => {
+                    selectedRows = parseInt(rowsInput.value) || 3;
+                });
+                rowsInput.addEventListener('input', () => {
+                    selectedRows = parseInt(rowsInput.value) || 3;
+                });
+            }
+            if (colsInput) {
+                colsInput.addEventListener('change', () => {
+                    selectedCols = parseInt(colsInput.value) || 3;
+                });
+                colsInput.addEventListener('input', () => {
+                    selectedCols = parseInt(colsInput.value) || 3;
+                });
+            }
+            
+            // Function to update grid selection
+            const updateSelection = (row, col) => {
+                selectedRows = row;
+                selectedCols = col;
+                grid.querySelectorAll('.richeditor-table-cell').forEach(c => {
+                    const cRow = parseInt(c.dataset.row);
+                    const cCol = parseInt(c.dataset.col);
+                    c.classList.toggle('selected', cRow <= row && cCol <= col);
+                });
+                if (sizeDisplay) sizeDisplay.textContent = `${row} x ${col}`;
+                if (rowsInput) rowsInput.value = row;
+                if (colsInput) colsInput.value = col;
+            };
             
             grid.querySelectorAll('.richeditor-table-cell').forEach(cell => {
-                cell.addEventListener('mouseover', () => {
+                // Mouseover to preview size (only if not locked)
+                cell.addEventListener('mouseenter', () => {
+                    if (isLocked) return; // Don't change if locked
+                    
+                    const row = parseInt(cell.dataset.row);
+                    const col = parseInt(cell.dataset.col);
+                    updateSelection(row, col);
+                });
+                
+                // Click to lock the selection
+                cell.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
                     const row = parseInt(cell.dataset.row);
                     const col = parseInt(cell.dataset.col);
                     
-                    grid.querySelectorAll('.richeditor-table-cell').forEach(c => {
-                        const cRow = parseInt(c.dataset.row);
-                        const cCol = parseInt(c.dataset.col);
-                        c.classList.toggle('selected', cRow <= row && cCol <= col);
-                    });
+                    // Lock the selection
+                    isLocked = true;
+                    updateSelection(row, col);
                     
-                    sizeDisplay.textContent = `${row} x ${col}`;
-                    rowsInput.value = row;
-                    colsInput.value = col;
+                    // Add locked indicator
+                    grid.classList.add('locked');
+                    if (sizeDisplay) sizeDisplay.innerHTML = `${row} x ${col} <span style="color: #28a745;">✓ Selected</span>`;
                 });
+            });
+            
+            // Click on grid again to unlock and reselect
+            grid.addEventListener('dblclick', () => {
+                isLocked = false;
+                grid.classList.remove('locked');
             });
         }
 
@@ -2145,17 +3743,103 @@
          * Insert a table
          */
         insertTable(rows, cols) {
-            let html = '<table class="richeditor-table"><tbody>';
-            for (let i = 0; i < rows; i++) {
-                html += '<tr>';
-                for (let j = 0; j < cols; j++) {
-                    html += '<td><br></td>';
-                }
-                html += '</tr>';
-            }
-            html += '</tbody></table><p><br></p>';
+            this.saveState();
             
-            this.execCommand('insertHTML', html);
+            // Restore selection and focus editor
+            this.restoreSelection();
+            this.editor.focus();
+            
+            // Calculate equal column width percentage
+            const colWidth = (100 / cols).toFixed(4);
+            
+            // Get editor default font settings
+            let fontFamily = this.options.defaultFontFamily || 'Arial, sans-serif';
+            const primaryFont = fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+            const fontSize = this.options.defaultFontSize || '14pt';
+            
+            // Create table using DOM
+            const table = document.createElement('table');
+            table.border = '1';
+            table.style.cssText = 'border-collapse: collapse; border: 1px solid rgb(0, 0, 0); width: 100%;';
+            
+            // Create colgroup
+            const colgroup = document.createElement('colgroup');
+            for (let j = 0; j < cols; j++) {
+                const col = document.createElement('col');
+                col.style.width = colWidth + '%';
+                colgroup.appendChild(col);
+            }
+            table.appendChild(colgroup);
+            
+            // Create tbody and rows
+            const tbody = document.createElement('tbody');
+            for (let i = 0; i < rows; i++) {
+                const tr = document.createElement('tr');
+                for (let j = 0; j < cols; j++) {
+                    const td = document.createElement('td');
+                    td.style.cssText = 'border: 1px solid rgb(0, 0, 0); padding: 4px; font-family: ' + primaryFont + '; font-size: ' + fontSize + ';';
+                    td.innerHTML = '<br>';
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+            
+            // Create paragraph after table with inline styles
+            const p = document.createElement('p');
+            if (this.options.enforceInlineStyles) {
+                p.style.cssText = this.getDefaultParagraphStyle();
+            }
+            p.innerHTML = '<br>';
+            
+            // Get selection and insert
+            const selection = window.getSelection();
+            let inserted = false;
+            
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                
+                // Check if selection is inside the editor
+                if (this.editor.contains(range.commonAncestorContainer)) {
+                    range.deleteContents();
+                    
+                    // Insert paragraph first, then table (so table comes before paragraph)
+                    const fragment = document.createDocumentFragment();
+                    fragment.appendChild(table);
+                    fragment.appendChild(p);
+                    range.insertNode(fragment);
+                    
+                    // Move cursor into first cell
+                    const firstCell = table.querySelector('td');
+                    if (firstCell) {
+                        const newRange = document.createRange();
+                        newRange.setStart(firstCell, 0);
+                        newRange.collapse(true);
+                        selection.removeAllRanges();
+                        selection.addRange(newRange);
+                    }
+                    inserted = true;
+                }
+            }
+            
+            // Fallback: append to editor
+            if (!inserted) {
+                this.editor.appendChild(table);
+                this.editor.appendChild(p);
+                
+                // Move cursor into first cell
+                const firstCell = table.querySelector('td');
+                if (firstCell) {
+                    const range = document.createRange();
+                    range.setStart(firstCell, 0);
+                    range.collapse(true);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                }
+            }
+            
+            this.syncContent();
+            this.updateToolbarState();
         }
 
         /**
@@ -2164,14 +3848,16 @@
         insertCodeBlock() {
             const selection = window.getSelection();
             const text = selection.toString() || 'Code here...';
-            this.execCommand('insertHTML', `<pre><code>${text}</code></pre><p><br></p>`);
+            const pStyle = this.options.enforceInlineStyles ? ` style="${this.getDefaultParagraphStyle()}"` : '';
+            this.execCommand('insertHTML', `<pre><code>${text}</code></pre><p${pStyle}><br></p>`);
         }
 
         /**
          * Insert image
          */
         insertImage(src, alt = '') {
-            this.execCommand('insertHTML', `<img src="${src}" alt="${alt}">`);
+            const pStyle = this.options.enforceInlineStyles ? ` style="${this.getDefaultParagraphStyle()}"` : '';
+            this.execCommand('insertHTML', `<img src="${src}" alt="${alt}"><p${pStyle}><br></p>`);
         }
 
         /**
@@ -2410,16 +4096,23 @@
          * Update font family, font size, and line height dropdowns to show current values
          */
         updateFontDropdowns() {
+            // Check if we have recently selected values (within last 5 seconds)
+            const recentlySelected = this.lastSelected && this.lastSelectedTime && 
+                                    (Date.now() - this.lastSelectedTime) < 5000;
+            
             const selection = window.getSelection();
-            if (!selection.rangeCount) return;
+            if (!selection.rangeCount && !recentlySelected) return;
             
             // Get the element at cursor position
-            let node = selection.anchorNode;
+            let node = selection.rangeCount ? selection.anchorNode : null;
             if (node && node.nodeType === Node.TEXT_NODE) {
                 node = node.parentElement;
             }
             
-            if (!node || !this.editor.contains(node)) return;
+            if (!node || !this.editor.contains(node)) {
+                if (!recentlySelected) return;
+                node = this.editor; // Fallback
+            }
             
             // Get computed styles
             const computedStyle = window.getComputedStyle(node);
@@ -2427,30 +4120,43 @@
             // Update font family dropdown
             const fontFamilyDropdown = this.toolbar.querySelector('[data-dropdown-type="fontFamily"]');
             if (fontFamilyDropdown) {
-                const currentFont = computedStyle.fontFamily;
                 const label = fontFamilyDropdown.querySelector('.richeditor-dropdown-label');
                 const menu = fontFamilyDropdown.querySelector('.richeditor-dropdown-menu');
                 
-                // Find matching font in options
-                const matchedFont = this.options.fontFamilies.find(f => {
-                    // Compare fonts (handle quotes and case)
-                    const fontValue = f.value.toLowerCase().replace(/['"]/g, '');
-                    const currentValue = currentFont.toLowerCase().replace(/['"]/g, '');
-                    return currentValue.includes(fontValue.split(',')[0].trim());
-                });
-                
-                if (label) {
-                    label.textContent = matchedFont ? matchedFont.label : 'Font';
-                }
-                
-                // Highlight active item in dropdown
-                if (menu) {
-                    menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
-                        item.classList.remove('active');
-                        if (matchedFont && item.dataset.value === matchedFont.value) {
-                            item.classList.add('active');
+                // Check lastSelected first
+                if (recentlySelected && this.lastSelected.fontFamily) {
+                    const lastFont = this.options.fontFamilies.find(f => f.value === this.lastSelected.fontFamily);
+                    if (lastFont) {
+                        if (label) label.textContent = lastFont.label;
+                        if (menu) {
+                            menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
+                                item.classList.remove('active');
+                                if (item.dataset.value === lastFont.value) {
+                                    item.classList.add('active');
+                                }
+                            });
                         }
+                    }
+                } else {
+                    // Fall back to computed style
+                    const currentFont = computedStyle.fontFamily;
+                    const matchedFont = this.options.fontFamilies.find(f => {
+                        const fontValue = f.value.toLowerCase().replace(/['"]/g, '');
+                        const currentValue = currentFont.toLowerCase().replace(/['"]/g, '');
+                        return currentValue.includes(fontValue.split(',')[0].trim());
                     });
+                    
+                    if (matchedFont) {
+                        if (label) label.textContent = matchedFont.label;
+                        if (menu) {
+                            menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
+                                item.classList.remove('active');
+                                if (item.dataset.value === matchedFont.value) {
+                                    item.classList.add('active');
+                                }
+                            });
+                        }
+                    }
                 }
             }
             
@@ -2460,50 +4166,58 @@
                 const label = fontSizeDropdown.querySelector('.richeditor-dropdown-label');
                 const menu = fontSizeDropdown.querySelector('.richeditor-dropdown-menu');
                 
-                // Check inline style first (will be in pt since we apply pt)
-                let inlineSize = this.getInlineFontSize(node);
-                let matchedSize = null;
-                let displayPt = null;
-                
-                if (inlineSize) {
-                    // Inline style found - check if it's pt or px
-                    const unit = inlineSize.replace(/[\d.]/g, '');
-                    if (unit === 'pt') {
-                        // Direct match with pt
-                        matchedSize = this.options.fontSizes.find(s => s.value === inlineSize);
-                        displayPt = parseFloat(inlineSize);
+                // Check lastSelected first
+                if (recentlySelected && this.lastSelected.fontSize) {
+                    const lastSize = this.options.fontSizes.find(s => s.value === this.lastSelected.fontSize);
+                    if (lastSize) {
+                        if (label) label.textContent = lastSize.label;
+                        if (menu) {
+                            menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
+                                item.classList.remove('active');
+                                if (item.dataset.value === lastSize.value) {
+                                    item.classList.add('active');
+                                }
+                            });
+                        }
+                    }
+                } else {
+                    // Fall back to computed/inline style
+                    let inlineSize = this.getInlineFontSize(node);
+                    let matchedSize = null;
+                    let displayPt = null;
+                    
+                    if (inlineSize) {
+                        const unit = inlineSize.replace(/[\d.]/g, '');
+                        if (unit === 'pt') {
+                            matchedSize = this.options.fontSizes.find(s => s.value === inlineSize);
+                            displayPt = parseFloat(inlineSize);
+                        } else {
+                            const pxValue = parseFloat(inlineSize);
+                            displayPt = Math.round(pxValue * 0.75);
+                            matchedSize = this.options.fontSizes.find(s => {
+                                const optPt = parseFloat(s.value);
+                                return Math.abs(optPt - displayPt) <= 1;
+                            });
+                        }
                     } else {
-                        // Convert px to pt
-                        const pxValue = parseFloat(inlineSize);
+                        const computedSize = computedStyle.fontSize;
+                        const pxValue = parseFloat(computedSize);
                         displayPt = Math.round(pxValue * 0.75);
                         matchedSize = this.options.fontSizes.find(s => {
                             const optPt = parseFloat(s.value);
                             return Math.abs(optPt - displayPt) <= 1;
                         });
                     }
-                } else {
-                    // No inline style - use computed style (browser returns px)
-                    const computedSize = computedStyle.fontSize;
-                    const pxValue = parseFloat(computedSize);
-                    displayPt = Math.round(pxValue * 0.75);
-                    matchedSize = this.options.fontSizes.find(s => {
-                        const optPt = parseFloat(s.value);
-                        return Math.abs(optPt - displayPt) <= 1;
-                    });
-                }
-                
-                if (label) {
-                    label.textContent = matchedSize ? matchedSize.label : `${displayPt}pt`;
-                }
-                
-                // Highlight active item in dropdown
-                if (menu) {
-                    menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
-                        item.classList.remove('active');
-                        if (matchedSize && item.dataset.value === matchedSize.value) {
-                            item.classList.add('active');
-                        }
-                    });
+                    
+                    if (label) label.textContent = matchedSize ? matchedSize.label : `${displayPt}pt`;
+                    if (menu) {
+                        menu.querySelectorAll('.richeditor-dropdown-item').forEach(item => {
+                            item.classList.remove('active');
+                            if (matchedSize && item.dataset.value === matchedSize.value) {
+                                item.classList.add('active');
+                            }
+                        });
+                    }
                 }
             }
             
@@ -2619,11 +4333,22 @@
         updateWordCount() {
             if (!this.wordCount) return;
             
-            const text = this.editor.innerText || '';
-            const words = text.trim().split(/\s+/).filter(w => w.length > 0).length;
+            // Get text content, normalizing whitespace
+            let text = this.editor.innerText || '';
+            
+            // Normalize whitespace: replace multiple spaces/newlines/tabs with single space
+            text = text.replace(/[\s\n\r\t]+/g, ' ').trim();
+            
+            // Count words (non-empty strings after splitting on whitespace)
+            const words = text.split(/\s+/).filter(w => w.length > 0).length;
+            
+            // Count text characters (excluding extra whitespace)
             const chars = text.length;
             
-            this.wordCount.textContent = `Words: ${words} | Characters: ${chars}`;
+            // Count HTML characters
+            const htmlChars = (this.editor.innerHTML || '').length;
+            
+            this.wordCount.textContent = `Words: ${words} | Characters: ${chars} | HTML: ${htmlChars}`;
         }
 
         /**
@@ -2767,7 +4492,7 @@
                     max-height: none !important;
                 }
                 
-                /* Menu Bar (TinyMCE style) */
+                /* Menu Bar (professional style) */
                 .richeditor-menubar {
                     display: flex;
                     padding: 0;
@@ -2826,6 +4551,25 @@
                     background: #f0f0f0;
                 }
                 
+                .richeditor-menu-option.active {
+                    background: #e3f2fd;
+                    color: #1976d2;
+                    font-weight: 500;
+                }
+                
+                .richeditor-menu-option.active .richeditor-menu-check {
+                    color: #1976d2;
+                }
+                
+                .richeditor-menu-option.active:hover {
+                    background: #bbdefb;
+                }
+                
+                /* Menu option with check space */
+                .richeditor-menu-option[data-type] {
+                    padding-left: 8px;
+                }
+                
                 .richeditor-menu-label {
                     flex: 1;
                 }
@@ -2840,6 +4584,161 @@
                     height: 1px;
                     background: #e0e0e0;
                     margin: 4px 0;
+                }
+                
+                /* Toggle menu item */
+                .richeditor-menu-toggle {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                
+                .richeditor-menu-check {
+                    width: 16px;
+                    min-width: 16px;
+                    height: 16px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 12px;
+                    color: #1976d2;
+                    font-weight: bold;
+                    margin-right: 4px;
+                }
+                
+                /* Notification */
+                .richeditor-notification {
+                    position: absolute;
+                    bottom: 50px;
+                    left: 50%;
+                    transform: translateX(-50%) translateY(10px);
+                    background: rgba(0, 0, 0, 0.8);
+                    color: white;
+                    padding: 10px 20px;
+                    border-radius: 6px;
+                    font-size: 14px;
+                    opacity: 0;
+                    transition: opacity 0.3s, transform 0.3s;
+                    z-index: 10000;
+                    pointer-events: none;
+                }
+                
+                .richeditor-notification.show {
+                    opacity: 1;
+                    transform: translateX(-50%) translateY(0);
+                }
+                
+                /* Paste Options Dialog */
+                .richeditor-paste-dialog {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.3);
+                    z-index: 100000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                
+                .richeditor-paste-dialog-content {
+                    background: white;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+                    padding: 20px;
+                    min-width: 300px;
+                    max-width: 400px;
+                }
+                
+                .richeditor-paste-dialog-title {
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: #333;
+                    margin-bottom: 16px;
+                    text-align: center;
+                }
+                
+                .richeditor-paste-options {
+                    display: flex;
+                    gap: 12px;
+                    justify-content: center;
+                    margin-bottom: 16px;
+                }
+                
+                .richeditor-paste-option {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 16px 20px;
+                    border: 2px solid #e0e0e0;
+                    border-radius: 8px;
+                    background: #fafafa;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    min-width: 120px;
+                }
+                
+                .richeditor-paste-option:hover {
+                    border-color: #0066cc;
+                    background: #f0f7ff;
+                }
+                
+                .richeditor-paste-option:active {
+                    transform: scale(0.98);
+                }
+                
+                .richeditor-paste-option-icon {
+                    color: #666;
+                }
+                
+                .richeditor-paste-option:hover .richeditor-paste-option-icon {
+                    color: #0066cc;
+                }
+                
+                .richeditor-paste-option-label {
+                    font-size: 12px;
+                    color: #555;
+                    text-align: center;
+                    font-weight: 500;
+                }
+                
+                .richeditor-paste-dialog-footer {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding-top: 12px;
+                    border-top: 1px solid #eee;
+                }
+                
+                .richeditor-paste-remember {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-size: 12px;
+                    color: #666;
+                    cursor: pointer;
+                }
+                
+                .richeditor-paste-remember input {
+                    cursor: pointer;
+                }
+                
+                .richeditor-paste-cancel {
+                    padding: 6px 12px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    background: white;
+                    color: #666;
+                    font-size: 12px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+                
+                .richeditor-paste-cancel:hover {
+                    background: #f5f5f5;
+                    border-color: #ccc;
                 }
                 
                 /* Submenu */
@@ -3076,24 +4975,21 @@
                     padding: 0;
                 }
                 
-                .richeditor-content table,
-                .richeditor-table {
+                /* Tables - fallback styles for tables without inline styles */
+                .richeditor-content table {
                     border-collapse: collapse;
                     width: 100%;
                     margin: 1em 0;
                 }
                 
                 .richeditor-content td,
-                .richeditor-content th,
-                .richeditor-table td,
-                .richeditor-table th {
+                .richeditor-content th {
                     border: 1px solid #ddd;
                     padding: 8px 12px;
                     min-width: 50px;
                 }
                 
-                .richeditor-content th,
-                .richeditor-table th {
+                .richeditor-content th {
                     background: #f5f5f5;
                     font-weight: 600;
                 }
@@ -3327,12 +5223,26 @@
                     margin-bottom: 8px;
                 }
                 
+                .richeditor-table-grid.locked {
+                    opacity: 0.9;
+                }
+                
+                .richeditor-table-grid.locked .richeditor-table-cell.selected {
+                    background: #28a745;
+                    border-color: #28a745;
+                }
+                
                 .richeditor-table-cell {
                     width: 20px;
                     height: 20px;
                     border: 1px solid #ddd;
                     background: white;
                     cursor: pointer;
+                    transition: all 0.1s ease;
+                }
+                
+                .richeditor-table-cell:hover {
+                    border-color: #0066cc;
                 }
                 
                 .richeditor-table-cell.selected {
@@ -3414,6 +5324,8 @@
          * Get editor content as HTML
          */
         getContent() {
+            // Ensure inline styles are applied before returning content
+            this.ensureInlineStyles();
             return this.editor.innerHTML;
         }
 
@@ -3422,15 +5334,26 @@
          */
         setContent(html) {
             this.editor.innerHTML = html;
+            // Apply inline styles to imported content
+            this.ensureInlineStyles();
             this.syncContent();
             this.updateWordCount();
         }
 
         /**
-         * Get content as plain text
+         * Get content as plain text (with normalized whitespace)
          */
         getText() {
-            return this.editor.innerText;
+            let text = this.editor.innerText || '';
+            // Normalize whitespace from table/block formatting
+            return text.replace(/[\s\n\r\t]+/g, ' ').trim();
+        }
+
+        /**
+         * Get raw text content (includes all whitespace from HTML formatting)
+         */
+        getRawText() {
+            return this.editor.innerText || '';
         }
 
         /**
@@ -3504,15 +5427,27 @@
          * Get word count
          */
         getWordCount() {
-            const text = this.editor.innerText || '';
-            return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+            let text = this.editor.innerText || '';
+            // Normalize whitespace
+            text = text.replace(/[\s\n\r\t]+/g, ' ').trim();
+            return text.split(/\s+/).filter(w => w.length > 0).length;
         }
 
         /**
          * Get character count
          */
         getCharCount() {
-            return (this.editor.innerText || '').length;
+            let text = this.editor.innerText || '';
+            // Normalize whitespace - count spaces between words but not extra formatting whitespace
+            text = text.replace(/[\s\n\r\t]+/g, ' ').trim();
+            return text.length;
+        }
+
+        /**
+         * Get HTML character count
+         */
+        getHtmlCharCount() {
+            return (this.editor.innerHTML || '').length;
         }
 
         /**
@@ -3674,12 +5609,13 @@
 
         showStats() {
             const text = this.editor.getText();
+            const htmlContent = this.editor.getContent();
             const words = text.trim().split(/\s+/).filter(w => w.length > 0);
             const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
             const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 0);
 
             this.editor.createDialog('Document Statistics', `
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
                     <div style="text-align: center; padding: 16px; background: #f5f5f5; border-radius: 8px;">
                         <div style="font-size: 32px; font-weight: bold; color: #0066cc;">${words.length}</div>
                         <div style="color: #666;">Words</div>
@@ -3689,6 +5625,10 @@
                         <div style="color: #666;">Characters</div>
                     </div>
                     <div style="text-align: center; padding: 16px; background: #f5f5f5; border-radius: 8px;">
+                        <div style="font-size: 32px; font-weight: bold; color: #0066cc;">${htmlContent.length}</div>
+                        <div style="color: #666;">HTML Chars</div>
+                    </div>
+                    <div style="text-align: center; padding: 16px; background: #f5f5f5; border-radius: 8px;">
                         <div style="font-size: 32px; font-weight: bold; color: #0066cc;">${sentences.length}</div>
                         <div style="color: #666;">Sentences</div>
                     </div>
@@ -3696,9 +5636,10 @@
                         <div style="font-size: 32px; font-weight: bold; color: #0066cc;">${paragraphs.length}</div>
                         <div style="color: #666;">Paragraphs</div>
                     </div>
-                </div>
-                <div style="margin-top: 16px; padding: 12px; background: #f9f9f9; border-radius: 4px;">
-                    <strong>Reading Time:</strong> ~${Math.ceil(words.length / 200)} min
+                    <div style="text-align: center; padding: 16px; background: #f5f5f5; border-radius: 8px;">
+                        <div style="font-size: 32px; font-weight: bold; color: #0066cc;">~${Math.ceil(words.length / 200)}</div>
+                        <div style="color: #666;">Min Read</div>
+                    </div>
                 </div>
             `, () => {});
         }
