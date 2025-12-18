@@ -660,6 +660,7 @@
         
         // Character/word count
         showWordCount: true,
+        maxCharacters: 10000, // Maximum character limit to display (0 = no limit shown)
         
         // Plugins
         plugins: [],
@@ -2155,16 +2156,34 @@
         createStatusBar() {
             this.statusBar = Utils.createElement('div', { className: 'richeditor-statusbar' });
             
+            // Left section: Words and Characters
+            const leftSection = Utils.createElement('div', { className: 'richeditor-statusbar-left' });
+            
             if (this.options.showWordCount) {
                 this.wordCount = Utils.createElement('span', { 
                     className: 'richeditor-wordcount',
                     textContent: 'Words: 0 | Characters: 0'
                 });
-                this.statusBar.appendChild(this.wordCount);
+                leftSection.appendChild(this.wordCount);
+            }
+            
+            this.statusBar.appendChild(leftSection);
+            
+            // Right section: HTML count
+            const rightSection = Utils.createElement('div', { className: 'richeditor-statusbar-right' });
+            
+            if (this.options.showWordCount) {
+                this.htmlCount = Utils.createElement('span', { 
+                    className: 'richeditor-htmlcount',
+                    textContent: 'HTML: 0'
+                });
+                rightSection.appendChild(this.htmlCount);
             }
             
             const resizeHandle = Utils.createElement('div', { className: 'richeditor-resize' });
-            this.statusBar.appendChild(resizeHandle);
+            rightSection.appendChild(resizeHandle);
+            
+            this.statusBar.appendChild(rightSection);
             
             this.wrapper.appendChild(this.statusBar);
             
@@ -4670,7 +4689,19 @@
             // Count HTML characters
             const htmlChars = (this.editor.innerHTML || '').length;
             
-            this.wordCount.textContent = `Words: ${words} | Characters: ${chars} | HTML: ${htmlChars}`;
+            // Format the display
+            // Left side: Words: X | Characters: Y of Z (if maxCharacters is set)
+            if (this.options.maxCharacters > 0) {
+                const maxChars = this.options.maxCharacters.toLocaleString();
+                this.wordCount.textContent = `Words: ${words.toLocaleString()} | Characters: ${chars.toLocaleString()} of ${maxChars}`;
+            } else {
+                this.wordCount.textContent = `Words: ${words.toLocaleString()} | Characters: ${chars.toLocaleString()}`;
+            }
+            
+            // Right side: HTML count
+            if (this.htmlCount) {
+                this.htmlCount.textContent = `HTML: ${htmlChars.toLocaleString()}`;
+            }
         }
 
         /**
@@ -5401,6 +5432,23 @@
                     background: #fafafa;
                     font-size: 12px;
                     color: #666;
+                }
+                
+                .richeditor-statusbar-left {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                
+                .richeditor-statusbar-right {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+                
+                .richeditor-wordcount,
+                .richeditor-htmlcount {
+                    white-space: nowrap;
                 }
                 
                 .richeditor-resize {
