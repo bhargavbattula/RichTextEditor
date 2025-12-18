@@ -660,7 +660,8 @@
         
         // Character/word count
         showWordCount: true,
-        maxCharacters: 10000, // Maximum character limit to display (0 = no limit shown)
+        showHtmlCount: true, // Show HTML character count in status bar
+        maxCharacters: 10000, // Maximum character limit (0 = no limit)
         
         // Plugins
         plugins: [],
@@ -2172,7 +2173,7 @@
             // Right section: HTML count
             const rightSection = Utils.createElement('div', { className: 'richeditor-statusbar-right' });
             
-            if (this.options.showWordCount) {
+            if (this.options.showHtmlCount) {
                 this.htmlCount = Utils.createElement('span', { 
                     className: 'richeditor-htmlcount',
                     textContent: 'HTML: 0'
