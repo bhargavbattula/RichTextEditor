@@ -423,6 +423,7 @@
     <span style="color: #a6e22e;">theme</span>: <span style="color: #e6db74;">'light'</span>,                <span style="color: #75715e;">// 'light' or 'dark'</span>
     <span style="color: #a6e22e;">spellcheck</span>: <span style="color: #ae81ff;">true</span>,              <span style="color: #75715e;">// Enable spell check</span>
     <span style="color: #a6e22e;">showWordCount</span>: <span style="color: #ae81ff;">true</span>,           <span style="color: #75715e;">// Show word/char count</span>
+    <span style="color: #a6e22e;">maxCharacters</span>: <span style="color: #ae81ff;">10000</span>,          <span style="color: #75715e;">// Character limit (0 = no limit)</span>
     <span style="color: #a6e22e;">rtl</span>: <span style="color: #ae81ff;">false</span>,                    <span style="color: #75715e;">// Right-to-left support</span>
     <span style="color: #a6e22e;">initialContent</span>: <span style="color: #e6db74;">''</span>,            <span style="color: #75715e;">// Initial HTML content</span>
     
@@ -533,6 +534,7 @@ editor.<span style="color: #a6e22e;">destroy</span>();</pre>
                 theme: document.getElementById('themeSelect').value,
                 showWordCount: document.getElementById('wordCountSelect').value === 'true',
                 showMenuBar: document.getElementById('menuBarSelect').value === 'true',
+                maxCharacters: 10000, // Character limit with enforcement
                 initialContent: `
                     <h2>Welcome to RichEditor! 🎉</h2>
                     <p>This is a <strong>full-featured</strong> WYSIWYG rich text editor, for web applications but <em>completely free</em>!</p>

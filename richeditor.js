@@ -2333,6 +2333,27 @@
          * Handle keyboard shortcuts
          */
         handleKeydown(e) {
+            // Character limit enforcement
+            if (this.options.maxCharacters > 0) {
+                const currentChars = this.getCharacterCount();
+                
+                // Check if this is a character-adding key (not control keys)
+                const isCharacterKey = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+                
+                // Allow: backspace, delete, arrow keys, home, end, tab, escape, enter
+                const isAllowedKey = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 
+                                      'Home', 'End', 'Tab', 'Escape', 'Enter'].includes(e.key);
+                
+                // Allow keyboard shortcuts (Ctrl/Cmd + key)
+                const isShortcut = e.ctrlKey || e.metaKey;
+                
+                if (isCharacterKey && !isAllowedKey && !isShortcut && currentChars >= this.options.maxCharacters) {
+                    e.preventDefault();
+                    this.showCharacterLimitWarning();
+                    return;
+                }
+            }
+            
             const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
             const modKey = isMac ? e.metaKey : e.ctrlKey;
             
@@ -2403,7 +2424,24 @@
             if (e.clipboardData) {
                 // Get both HTML and plain text content
                 const html = e.clipboardData.getData('text/html');
-                const text = e.clipboardData.getData('text/plain');
+                let text = e.clipboardData.getData('text/plain');
+                
+                // Character limit enforcement for paste
+                if (this.options.maxCharacters > 0) {
+                    const currentChars = this.getCharacterCount();
+                    const remainingChars = this.options.maxCharacters - currentChars;
+                    
+                    if (remainingChars <= 0) {
+                        this.showCharacterLimitWarning();
+                        return;
+                    }
+                    
+                    // Truncate pasted text if it would exceed the limit
+                    if (text.length > remainingChars) {
+                        text = text.substring(0, remainingChars);
+                        this.showCharacterLimitWarning();
+                    }
+                }
                 
                 // Check if content is from Word/external source (has HTML formatting)
                 const hasFormatting = html && (
@@ -4694,14 +4732,80 @@
             if (this.options.maxCharacters > 0) {
                 const maxChars = this.options.maxCharacters.toLocaleString();
                 this.wordCount.textContent = `Words: ${words.toLocaleString()} | Characters: ${chars.toLocaleString()} of ${maxChars}`;
+                
+                // Visual warning when approaching or at limit
+                const percentUsed = (chars / this.options.maxCharacters) * 100;
+                if (chars >= this.options.maxCharacters) {
+                    this.wordCount.classList.add('limit-reached');
+                    this.wordCount.classList.remove('limit-warning');
+                } else if (percentUsed >= 90) {
+                    this.wordCount.classList.add('limit-warning');
+                    this.wordCount.classList.remove('limit-reached');
+                } else {
+                    this.wordCount.classList.remove('limit-warning', 'limit-reached');
+                }
             } else {
                 this.wordCount.textContent = `Words: ${words.toLocaleString()} | Characters: ${chars.toLocaleString()}`;
+                this.wordCount.classList.remove('limit-warning', 'limit-reached');
             }
             
             // Right side: HTML count
             if (this.htmlCount) {
                 this.htmlCount.textContent = `HTML: ${htmlChars.toLocaleString()}`;
             }
+        }
+
+        /**
+         * Get current character count (text only, not HTML)
+         */
+        getCharacterCount() {
+            let text = this.editor.innerText || '';
+            text = text.replace(/[\s\n\r\t]+/g, ' ').trim();
+            return text.length;
+        }
+
+        /**
+         * Show character limit warning
+         */
+        showCharacterLimitWarning() {
+            // Flash the word count to indicate limit reached
+            if (this.wordCount) {
+                this.wordCount.classList.add('limit-flash');
+                setTimeout(() => {
+                    this.wordCount.classList.remove('limit-flash');
+                }, 300);
+            }
+            
+            // Also briefly show a tooltip/message
+            this.showLimitTooltip();
+        }
+
+        /**
+         * Show limit reached tooltip
+         */
+        showLimitTooltip() {
+            // Remove existing tooltip
+            const existing = this.statusBar.querySelector('.richeditor-limit-tooltip');
+            if (existing) existing.remove();
+            
+            const tooltip = Utils.createElement('div', {
+                className: 'richeditor-limit-tooltip',
+                textContent: `Character limit reached (${this.options.maxCharacters.toLocaleString()} max)`
+            });
+            
+            // Append to status bar for proper positioning
+            this.statusBar.appendChild(tooltip);
+            
+            // Show tooltip
+            setTimeout(() => {
+                tooltip.classList.add('show');
+            }, 10);
+            
+            // Remove after 2 seconds
+            setTimeout(() => {
+                tooltip.classList.remove('show');
+                setTimeout(() => tooltip.remove(), 300);
+            }, 2000);
         }
 
         /**
@@ -5432,6 +5536,7 @@
                     background: #fafafa;
                     font-size: 12px;
                     color: #666;
+                    position: relative;
                 }
                 
                 .richeditor-statusbar-left {
@@ -5449,6 +5554,59 @@
                 .richeditor-wordcount,
                 .richeditor-htmlcount {
                     white-space: nowrap;
+                }
+                
+                /* Character limit warning styles */
+                .richeditor-wordcount.limit-warning {
+                    color: #e65100;
+                    font-weight: 500;
+                }
+                
+                .richeditor-wordcount.limit-reached {
+                    color: #d32f2f;
+                    font-weight: 600;
+                }
+                
+                .richeditor-wordcount.limit-flash {
+                    animation: limitFlash 0.3s ease;
+                }
+                
+                @keyframes limitFlash {
+                    0%, 100% { background-color: transparent; }
+                    50% { background-color: #ffcdd2; }
+                }
+                
+                .richeditor-limit-tooltip {
+                    position: absolute;
+                    bottom: 100%;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    margin-bottom: 8px;
+                    background: #d32f2f;
+                    color: white;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    white-space: nowrap;
+                    opacity: 0;
+                    transition: opacity 0.3s ease;
+                    z-index: 1000;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                }
+                
+                .richeditor-limit-tooltip.show {
+                    opacity: 1;
+                }
+                
+                .richeditor-limit-tooltip::after {
+                    content: '';
+                    position: absolute;
+                    top: 100%;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    border-left: 6px solid transparent;
+                    border-right: 6px solid transparent;
+                    border-top: 6px solid #d32f2f;
                 }
                 
                 .richeditor-resize {
