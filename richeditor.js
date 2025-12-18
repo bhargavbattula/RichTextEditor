@@ -836,12 +836,12 @@
                 formatSubmenus.push({
                     label: 'Headings',
                     submenu: [
-                        { label: 'Heading 1', action: () => this.execCommand('formatBlock', 'h1') },
-                        { label: 'Heading 2', action: () => this.execCommand('formatBlock', 'h2') },
-                        { label: 'Heading 3', action: () => this.execCommand('formatBlock', 'h3') },
-                        { label: 'Heading 4', action: () => this.execCommand('formatBlock', 'h4') },
-                        { label: 'Heading 5', action: () => this.execCommand('formatBlock', 'h5') },
-                        { label: 'Heading 6', action: () => this.execCommand('formatBlock', 'h6') }
+                        { label: 'Heading 1', action: () => this.execCommand('formatBlock', 'h1'), style: 'font-size: 1.8em; font-weight: bold;' },
+                        { label: 'Heading 2', action: () => this.execCommand('formatBlock', 'h2'), style: 'font-size: 1.5em; font-weight: bold;' },
+                        { label: 'Heading 3', action: () => this.execCommand('formatBlock', 'h3'), style: 'font-size: 1.25em; font-weight: bold;' },
+                        { label: 'Heading 4', action: () => this.execCommand('formatBlock', 'h4'), style: 'font-size: 1.1em; font-weight: bold;' },
+                        { label: 'Heading 5', action: () => this.execCommand('formatBlock', 'h5'), style: 'font-size: 1em; font-weight: bold;' },
+                        { label: 'Heading 6', action: () => this.execCommand('formatBlock', 'h6'), style: 'font-size: 0.9em; font-weight: bold;' }
                     ]
                 });
             }
@@ -1168,14 +1168,15 @@
                         subOption.dataset.value = subItem.value;
                     }
                     
-                    if (subItem.style) {
-                        subOption.style.cssText = subItem.style;
-                    }
-                    
                     const subLabelSpan = Utils.createElement('span', { 
                         className: 'richeditor-menu-label',
                         textContent: subItem.label 
                     });
+                    
+                    if (subItem.style) {
+                        subLabelSpan.style.cssText = subItem.style;
+                    }
+                    
                     subOption.appendChild(subLabelSpan);
                     
                     if (subItem.shortcut) {
@@ -1315,7 +1316,8 @@
                     if (type === 'fontFamily') {
                         const fontValue = value.toLowerCase().replace(/['"]/g, '').split(',')[0].trim();
                         const currentFontPrimary = currentFont.split(',')[0].trim();
-                        if (currentFontPrimary.includes(fontValue) || fontValue.includes(currentFontPrimary)) {
+                        // Use exact match to avoid "Arial" matching "Arial Black"
+                        if (currentFontPrimary === fontValue || fontValue === currentFontPrimary) {
                             isActive = true;
                         }
                     } else if (type === 'fontSize') {
@@ -1530,18 +1532,29 @@
         }
 
         /**
+         * Get default style for heading elements (no font-size to preserve semantic sizing)
+         */
+        getDefaultHeadingStyle() {
+            const fontFamily = this.options.defaultFontFamily || 'Arial, sans-serif';
+            const primaryFont = fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+            const color = this.options.defaultColor || '#000000';
+            // No font-size for headings - they should use their natural semantic sizes
+            return `font-family: ${primaryFont}; color: ${color};`;
+        }
+
+        /**
          * Apply inline styles to all block elements that don't have them
          */
         applyInlineStylesToContent() {
             if (!this.options.enforceInlineStyles) return;
             
             const defaultStyle = this.getDefaultParagraphStyle();
-            const blockElements = this.editor.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, div:not(.richeditor-video-wrapper)');
+            const headingStyle = this.getDefaultHeadingStyle();
             
+            // Apply to non-heading block elements
+            const blockElements = this.editor.querySelectorAll('p, li, blockquote, div:not(.richeditor-video-wrapper)');
             blockElements.forEach(el => {
-                // Check if element has font-family style
                 if (!el.style.fontFamily) {
-                    // Apply default styles
                     const currentStyle = el.getAttribute('style') || '';
                     if (currentStyle) {
                         el.setAttribute('style', currentStyle + ' ' + defaultStyle);
@@ -1549,6 +1562,76 @@
                         el.setAttribute('style', defaultStyle);
                     }
                 }
+            });
+            
+            // Apply to heading elements (without font-size)
+            const headingElements = this.editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            headingElements.forEach(el => {
+                if (!el.style.fontFamily) {
+                    const currentStyle = el.getAttribute('style') || '';
+                    // Remove any font-size that might have been added
+                    const cleanedStyle = currentStyle.replace(/font-size:\s*[^;]+;?/gi, '').trim();
+                    if (cleanedStyle) {
+                        el.setAttribute('style', cleanedStyle + ' ' + headingStyle);
+                    } else {
+                        el.setAttribute('style', headingStyle);
+                    }
+                } else {
+                    // If heading has font-family but also has font-size, remove the font-size
+                    const currentStyle = el.getAttribute('style') || '';
+                    if (currentStyle.includes('font-size')) {
+                        const cleanedStyle = currentStyle.replace(/font-size:\s*[^;]+;?/gi, '').trim();
+                        el.setAttribute('style', cleanedStyle);
+                    }
+                }
+            });
+        }
+
+        /**
+         * Remove font-size from all headings and their child elements
+         * This ensures headings use their natural semantic sizes
+         */
+        removeHeadingFontSize() {
+            const headingElements = this.editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            const fontFamily = this.options.defaultFontFamily || 'Arial, sans-serif';
+            const primaryFont = fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+            const color = this.options.defaultColor || '#000000';
+            
+            headingElements.forEach(heading => {
+                // Remove font-size from the heading itself
+                const currentStyle = heading.getAttribute('style') || '';
+                if (currentStyle) {
+                    // Remove font-size property
+                    let cleanedStyle = currentStyle.replace(/font-size:\s*[^;]+;?/gi, '').trim();
+                    // Ensure font-family and color are present
+                    if (!cleanedStyle.includes('font-family')) {
+                        cleanedStyle += ` font-family: ${primaryFont};`;
+                    }
+                    if (!cleanedStyle.includes('color')) {
+                        cleanedStyle += ` color: ${color};`;
+                    }
+                    heading.setAttribute('style', cleanedStyle.trim());
+                } else {
+                    heading.setAttribute('style', `font-family: ${primaryFont}; color: ${color};`);
+                }
+                
+                // Also remove font-size from any spans inside the heading
+                const spans = heading.querySelectorAll('span, font');
+                spans.forEach(span => {
+                    const spanStyle = span.getAttribute('style') || '';
+                    if (spanStyle.includes('font-size')) {
+                        const cleanedSpanStyle = spanStyle.replace(/font-size:\s*[^;]+;?/gi, '').trim();
+                        if (cleanedSpanStyle) {
+                            span.setAttribute('style', cleanedSpanStyle);
+                        } else {
+                            span.removeAttribute('style');
+                        }
+                    }
+                    // Remove size attribute from font tags
+                    if (span.tagName === 'FONT' && span.hasAttribute('size')) {
+                        span.removeAttribute('size');
+                    }
+                });
             });
         }
 
@@ -1584,6 +1667,9 @@
             
             // Apply styles to block elements
             this.applyInlineStylesToContent();
+            
+            // Always ensure headings don't have font-size
+            this.removeHeadingFontSize();
             
             // Wrap orphan text nodes in styled paragraphs
             children.forEach(child => {
@@ -1704,10 +1790,12 @@
             // Set default label based on dropdown type and config defaults
             let defaultLabel = 'Paragraph';
             if (name === 'fontFamily') {
-                // Find the label for the default font family
-                const defaultFont = this.options.fontFamilies.find(f => 
-                    f.value.toLowerCase().includes(this.options.defaultFontFamily.split(',')[0].toLowerCase().trim())
-                );
+                // Find the label for the default font family - use exact match on primary font
+                const defaultPrimary = this.options.defaultFontFamily.split(',')[0].toLowerCase().trim().replace(/['"]/g, '');
+                const defaultFont = this.options.fontFamilies.find(f => {
+                    const fontPrimary = f.value.toLowerCase().split(',')[0].trim().replace(/['"]/g, '');
+                    return fontPrimary === defaultPrimary;
+                });
                 defaultLabel = defaultFont ? defaultFont.label : 'Font';
             } else if (name === 'fontSize') {
                 // Find the label for the default font size (both should be in pt)
@@ -1764,8 +1852,10 @@
                     item.style.fontFamily = opt.value;
                     item.textContent = opt.label;
                     item.dataset.value = opt.value;  // Add data-value for active state tracking
-                    // Mark default font as active
-                    if (opt.value.toLowerCase().includes(this.options.defaultFontFamily.split(',')[0].toLowerCase().trim())) {
+                    // Mark default font as active - use exact match on primary font
+                    const optPrimary = opt.value.toLowerCase().split(',')[0].trim().replace(/['"]/g, '');
+                    const defaultPrimary = this.options.defaultFontFamily.split(',')[0].toLowerCase().trim().replace(/['"]/g, '');
+                    if (optPrimary === defaultPrimary) {
                         item.classList.add('active');
                     }
                     item.addEventListener('click', () => {
@@ -2688,7 +2778,47 @@
             }
             
             if (command === 'formatBlock' && value) {
-                value = `<${value}>`;
+                // Normalize value - remove angle brackets if present
+                const targetTag = value.replace(/[<>]/g, '').toLowerCase();
+                
+                // Special handling for 'pre' - wraps ALL content in single pre
+                if (targetTag === 'pre') {
+                    this.applyPreFormat();
+                    this.syncContent();
+                    this.updateToolbarState();
+                    return;
+                }
+                
+                // For all other block formats, check if we're inside a pre first
+                const selection = window.getSelection();
+                if (selection.rangeCount) {
+                    const range = selection.getRangeAt(0);
+                    let node = range.commonAncestorContainer;
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        node = node.parentElement;
+                    }
+                    
+                    // Find if we're inside a pre element
+                    let preElement = null;
+                    let current = node;
+                    while (current && current !== this.editor) {
+                        if (current.tagName === 'PRE') {
+                            preElement = current;
+                            break;
+                        }
+                        current = current.parentElement;
+                    }
+                    
+                    if (preElement) {
+                        // Convert ENTIRE pre to the target format
+                        this.convertPreToBlock(preElement, targetTag);
+                        this.syncContent();
+                        this.updateToolbarState();
+                        return;
+                    }
+                }
+                
+                value = `<${targetTag}>`;
             }
             
             // Special handling for text formatting in table cells
@@ -2743,6 +2873,23 @@
             // Execute the command
             document.execCommand(command, false, value);
             
+            // Special handling after formatBlock to apply correct inline styles
+            if (command === 'formatBlock' && this.options.enforceInlineStyles) {
+                // For headings, we need to remove any font-size that was inherited
+                const targetTag = value ? value.replace(/[<>]/g, '').toLowerCase() : '';
+                if (/^h[1-6]$/.test(targetTag)) {
+                    // Find and fix the heading that was just created
+                    setTimeout(() => {
+                        this.removeHeadingFontSize();
+                    }, 0);
+                } else {
+                    // Apply inline styles to the newly created block element
+                    setTimeout(() => {
+                        this.applyInlineStylesToContent();
+                    }, 0);
+                }
+            }
+            
             // Immediately update font dropdown when fontName is used
             if (command === 'fontName' && value) {
                 this.updateFontDropdownImmediate(value);
@@ -2756,6 +2903,127 @@
             
             this.syncContent();
             this.updateToolbarState();
+        }
+
+        /**
+         * Apply preformatted text formatting - wraps ALL editor content in a single pre tag like TinyMCE
+         * TinyMCE behavior: Pre format applies to entire editor content, not individual blocks
+         */
+        applyPreFormat() {
+            // Get default font settings
+            let fontFamily = this.options.defaultFontFamily || 'Arial, sans-serif';
+            const primaryFont = fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+            const fontSize = this.options.defaultFontSize || '14pt';
+            
+            // Check if editor is already entirely a pre
+            if (this.editor.children.length === 1 && 
+                this.editor.firstElementChild && 
+                this.editor.firstElementChild.tagName === 'PRE') {
+                // Already a single pre - do nothing
+                return;
+            }
+            
+            // Get ALL text content from the editor, preserving line breaks
+            const textContent = this.editor.innerText || this.editor.textContent || '';
+            
+            // Create new pre element with inline styles
+            const pre = document.createElement('pre');
+            pre.style.fontFamily = primaryFont;
+            pre.style.fontSize = fontSize;
+            
+            // Create inner span like TinyMCE does
+            const span = document.createElement('span');
+            span.setAttribute('data-teams', 'true');
+            span.style.fontFamily = primaryFont;
+            span.style.fontSize = fontSize;
+            
+            // Convert newlines to <br> for proper display
+            const lines = textContent.split('\n');
+            lines.forEach((line, index) => {
+                if (index > 0) {
+                    span.appendChild(document.createElement('br'));
+                }
+                // Use non-breaking space for empty lines to preserve them
+                if (line) {
+                    span.appendChild(document.createTextNode(line));
+                } else if (index < lines.length - 1) {
+                    // Empty line in the middle - add nbsp to preserve it
+                    span.appendChild(document.createTextNode('\u00A0'));
+                }
+            });
+            
+            pre.appendChild(span);
+            
+            // Replace ALL editor content with the single pre
+            this.editor.innerHTML = '';
+            this.editor.appendChild(pre);
+            
+            // Set cursor at the end of the pre
+            try {
+                const selection = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(pre);
+                range.collapse(false);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            } catch (e) {
+                // Ignore selection errors
+            }
+        }
+
+        /**
+         * Convert pre element to another block format (div, p, etc.)
+         */
+        convertPreToBlock(preElement, targetTag) {
+            // Get the text content from the pre
+            const textContent = preElement.innerText || preElement.textContent;
+            
+            // Get font settings
+            let fontFamily = this.options.defaultFontFamily || 'Arial, sans-serif';
+            const primaryFont = fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+            const fontSize = this.options.defaultFontSize || '14pt';
+            const color = this.options.defaultColor || '#000000';
+            
+            // Check if target is a heading (headings shouldn't have font-size)
+            const isHeading = /^h[1-6]$/i.test(targetTag);
+            
+            // Split by line breaks
+            const allLines = textContent.split('\n');
+            // Filter out completely empty lines but keep lines with just whitespace
+            const lines = allLines.filter((line, index, arr) => {
+                // Keep if not empty, or if it's the only line
+                return line.trim() !== '' || arr.length === 1;
+            });
+            
+            // Create a document fragment to hold all new elements
+            const fragment = document.createDocumentFragment();
+            
+            if (lines.length === 0) {
+                // Empty content - create single empty block
+                const block = document.createElement(targetTag);
+                block.style.fontFamily = primaryFont;
+                if (!isHeading) {
+                    block.style.fontSize = fontSize;
+                }
+                block.style.color = color;
+                block.innerHTML = '<br>';
+                fragment.appendChild(block);
+            } else {
+                // Create a block element for each line
+                lines.forEach(line => {
+                    const block = document.createElement(targetTag);
+                    block.style.fontFamily = primaryFont;
+                    if (!isHeading) {
+                        block.style.fontSize = fontSize;
+                    }
+                    block.style.color = color;
+                    block.textContent = line || '\u00A0'; // Use nbsp for empty lines
+                    fragment.appendChild(block);
+                });
+            }
+            
+            // Replace the pre element with the new blocks
+            preElement.parentNode.replaceChild(fragment, preElement);
         }
 
         /**
@@ -3849,7 +4117,9 @@
             const selection = window.getSelection();
             const text = selection.toString() || 'Code here...';
             const pStyle = this.options.enforceInlineStyles ? ` style="${this.getDefaultParagraphStyle()}"` : '';
-            this.execCommand('insertHTML', `<pre><code>${text}</code></pre><p${pStyle}><br></p>`);
+            const fontSize = this.options.defaultFontSize || '14pt';
+            // Code blocks use monospace font
+            this.execCommand('insertHTML', `<pre style="font-family: 'Monaco', 'Menlo', 'Courier New', monospace; font-size: ${fontSize}; white-space: pre; margin: 0;"><code>${text}</code></pre><p${pStyle}><br></p>`);
         }
 
         /**
@@ -4140,10 +4410,11 @@
                 } else {
                     // Fall back to computed style
                     const currentFont = computedStyle.fontFamily;
+                    const currentPrimary = currentFont.toLowerCase().replace(/['"]/g, '').split(',')[0].trim();
                     const matchedFont = this.options.fontFamilies.find(f => {
-                        const fontValue = f.value.toLowerCase().replace(/['"]/g, '');
-                        const currentValue = currentFont.toLowerCase().replace(/['"]/g, '');
-                        return currentValue.includes(fontValue.split(',')[0].trim());
+                        const fontValue = f.value.toLowerCase().replace(/['"]/g, '').split(',')[0].trim();
+                        // Use exact match to avoid "Arial" matching "Arial Black"
+                        return currentPrimary === fontValue;
                     });
                     
                     if (matchedFont) {
@@ -4309,12 +4580,63 @@
          * Sync content to original element
          */
         syncContent() {
+            // Clean up any invalid nesting before syncing
+            this.cleanupInvalidNesting();
+            
+            // Ensure headings don't have font-size
+            if (this.options.enforceInlineStyles) {
+                this.removeHeadingFontSize();
+            }
+            
             const content = this.editor.innerHTML;
             if (this.originalElement.tagName === 'TEXTAREA' || this.originalElement.tagName === 'INPUT') {
                 this.originalElement.value = content;
             } else {
                 this.originalElement.innerHTML = content;
             }
+        }
+
+        /**
+         * Clean up invalid HTML nesting (e.g., pre inside p, div inside p)
+         */
+        cleanupInvalidNesting() {
+            // Find pre elements that are nested inside other block elements
+            const invalidPreElements = this.editor.querySelectorAll('p > pre, div > pre, h1 > pre, h2 > pre, h3 > pre, h4 > pre, h5 > pre, h6 > pre');
+            
+            invalidPreElements.forEach(pre => {
+                const parent = pre.parentElement;
+                if (parent && parent !== this.editor) {
+                    // Move the pre out of its parent
+                    // If parent has content before the pre, keep it
+                    // If parent has content after the pre, keep it
+                    
+                    const grandparent = parent.parentElement;
+                    if (grandparent) {
+                        // Check if there's other content in the parent besides this pre
+                        const siblings = Array.from(parent.childNodes).filter(n => n !== pre);
+                        const hasOtherContent = siblings.some(n => {
+                            if (n.nodeType === Node.TEXT_NODE) return n.textContent.trim() !== '';
+                            return true;
+                        });
+                        
+                        if (!hasOtherContent) {
+                            // Parent only contains this pre - replace parent with pre
+                            grandparent.replaceChild(pre, parent);
+                        } else {
+                            // Parent has other content - insert pre after parent
+                            grandparent.insertBefore(pre, parent.nextSibling);
+                        }
+                    }
+                }
+            });
+            
+            // Also clean up empty block elements that might be left behind
+            const emptyBlocks = this.editor.querySelectorAll('p:empty, div:empty');
+            emptyBlocks.forEach(block => {
+                if (block.parentElement) {
+                    block.remove();
+                }
+            });
         }
 
         /**
@@ -4545,6 +4867,8 @@
                     transition: background 0.15s;
                     font-size: 14px;
                     color: #333;
+                    border: none !important;
+                    border-bottom: none !important;
                 }
                 
                 .richeditor-menu-option:hover {
@@ -4910,8 +5234,41 @@
                 .richeditor-dropdown-item h4,
                 .richeditor-dropdown-item h5,
                 .richeditor-dropdown-item h6 {
-                    margin: 0;
-                    font-weight: normal;
+                    margin: 0 !important;
+                    border: none !important;
+                    padding: 0 !important;
+                    border-bottom: none !important;
+                }
+                
+                .richeditor-dropdown-item h1 {
+                    font-size: 1.8em;
+                    font-weight: bold;
+                }
+                
+                .richeditor-dropdown-item h2 {
+                    font-size: 1.5em;
+                    font-weight: bold;
+                    border-bottom: none !important;
+                }
+                
+                .richeditor-dropdown-item h3 {
+                    font-size: 1.25em;
+                    font-weight: bold;
+                }
+                
+                .richeditor-dropdown-item h4 {
+                    font-size: 1.1em;
+                    font-weight: bold;
+                }
+                
+                .richeditor-dropdown-item h5 {
+                    font-size: 1em;
+                    font-weight: bold;
+                }
+                
+                .richeditor-dropdown-item h6 {
+                    font-size: 0.9em;
+                    font-weight: bold;
                 }
                 
                 /* Editor content */
@@ -4923,6 +5280,7 @@
                     padding: 16px;
                     outline: none;
                     overflow-y: auto;
+                    overflow-x: auto;
                     line-height: 1.6;
                 }
                 
@@ -4935,6 +5293,24 @@
                 .richeditor-content p {
                     margin: 0 0 1em 0;
                 }
+                
+                .richeditor-content h1,
+                .richeditor-content h2,
+                .richeditor-content h3,
+                .richeditor-content h4,
+                .richeditor-content h5,
+                .richeditor-content h6 {
+                    margin: 0.5em 0;
+                    border: none;
+                    padding: 0;
+                }
+                
+                .richeditor-content h1 { font-size: 2em; }
+                .richeditor-content h2 { font-size: 1.5em; border-bottom: none; }
+                .richeditor-content h3 { font-size: 1.17em; }
+                .richeditor-content h4 { font-size: 1em; }
+                .richeditor-content h5 { font-size: 0.83em; }
+                .richeditor-content h6 { font-size: 0.67em; }
                 
                 .richeditor-content img {
                     max-width: 100%;
@@ -4954,20 +5330,13 @@
                 }
                 
                 .richeditor-content pre {
-                    background: #2d2d2d;
-                    color: #f8f8f2;
-                    padding: 16px;
-                    border-radius: 4px;
-                    overflow-x: auto;
-                    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+                    white-space: pre;
+                    margin: 0;
+                    padding: 0;
                 }
                 
                 .richeditor-content code {
-                    background: #f4f4f4;
-                    padding: 2px 6px;
-                    border-radius: 3px;
                     font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-                    font-size: 0.9em;
                 }
                 
                 .richeditor-content pre code {
@@ -5288,10 +5657,6 @@
                 .richeditor-theme-dark .richeditor-content blockquote {
                     background: #2d2d2d;
                     border-color: #0066cc;
-                }
-                
-                .richeditor-theme-dark .richeditor-content code {
-                    background: #2d2d2d;
                 }
                 
                 .richeditor-theme-dark .richeditor-statusbar {
