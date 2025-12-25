@@ -427,6 +427,10 @@
     <span style="color: #a6e22e;">maxCharacters</span>: <span style="color: #ae81ff;">10000</span>,          <span style="color: #75715e;">// Character limit (0 = no limit)</span>
     <span style="color: #a6e22e;">rtl</span>: <span style="color: #ae81ff;">false</span>,                    <span style="color: #75715e;">// Right-to-left support</span>
     <span style="color: #a6e22e;">initialContent</span>: <span style="color: #e6db74;">''</span>,            <span style="color: #75715e;">// Initial HTML content</span>
+    <span style="color: #a6e22e;">disabled</span>: <span style="color: #ae81ff;">false</span>,               <span style="color: #75715e;">// Start in read-only mode</span>
+    
+    <span style="color: #75715e;">// Paste mode: 'plainText' or 'formattedAndPlainText'</span>
+    <span style="color: #a6e22e;">pasteMode</span>: <span style="color: #e6db74;">'plainText'</span>,        <span style="color: #75715e;">// Default paste behavior</span>
     
     <span style="color: #75715e;">// Toolbar configuration</span>
     <span style="color: #a6e22e;">toolbar</span>: [
@@ -494,6 +498,11 @@ editor.<span style="color: #a6e22e;">clear</span>();
 <span style="color: #75715e;">// Enable/disable</span>
 editor.<span style="color: #a6e22e;">enable</span>();
 editor.<span style="color: #a6e22e;">disable</span>();
+editor.<span style="color: #a6e22e;">isDisabled</span>();
+
+<span style="color: #75715e;">// Paste mode: 'plainText' or 'formattedAndPlainText'</span>
+editor.<span style="color: #a6e22e;">setPasteMode</span>(<span style="color: #e6db74;">'formattedAndPlainText'</span>);
+editor.<span style="color: #a6e22e;">getPasteMode</span>();
 
 <span style="color: #75715e;">// Get counts</span>
 editor.<span style="color: #a6e22e;">getWordCount</span>();
@@ -525,7 +534,6 @@ editor.<span style="color: #a6e22e;">destroy</span>();</pre>
     <script src="richeditor.js"></script>
     <script>
         let editor;
-        let isDisabled = false;
 
         // Initialize editor
         function initEditor(options = {}) {
@@ -553,9 +561,7 @@ editor.<span style="color: #a6e22e;">destroy</span>();</pre>
                         <li>Code blocks</li>
                         <li>And much more!</li>
                     </ul>
-                    <blockquote>
-                        "The best editor is the one that gets out of your way and lets you focus on content."
-                    </blockquote>
+                    <p><em>"The best editor is the one that gets out of your way and lets you focus on content."</em></p>
                     <p>Try it out! Select some text and use the toolbar or menu bar above to format it. 👆</p>
                     <table>
                         <tr>
@@ -705,13 +711,12 @@ editor.<span style="color: #a6e22e;">destroy</span>();</pre>
         }
 
         function apiToggleDisable() {
-            isDisabled = !isDisabled;
-            if (isDisabled) {
-                editor.disable();
-                document.getElementById('apiOutput').textContent = 'Editor disabled!';
-            } else {
+            if (editor.isDisabled()) {
                 editor.enable();
-                document.getElementById('apiOutput').textContent = 'Editor enabled!';
+                document.getElementById('apiOutput').textContent = 'Editor enabled! All controls are now active.';
+            } else {
+                editor.disable();
+                document.getElementById('apiOutput').textContent = 'Editor disabled! Read-only mode activated.';
             }
         }
 
