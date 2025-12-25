@@ -412,6 +412,7 @@
         maxHeight: null,
         width: '100%',
         placeholder: 'Start typing...',
+        disabled: false,        // Start editor in disabled/readonly mode
         
         // Content settings
         initialContent: '',
@@ -442,7 +443,7 @@
             ['orderedList', 'unorderedList'],
             ['indent', 'outdent'],
             ['link', 'unlink', 'image', 'video', 'table'],
-            ['blockquote', 'codeBlock', 'horizontalRule'],
+            ['codeBlock', 'horizontalRule'],
             ['removeFormat', 'clearFormatting'],
             ['sourceCode', 'fullscreen', 'print']
         ],
@@ -484,7 +485,6 @@
             horizontalRule: { icon: 'horizontalRule', title: 'Horizontal Line', command: 'insertHorizontalRule' },
             
             // Block elements
-            blockquote: { icon: 'blockquote', title: 'Blockquote', command: 'formatBlock', value: 'blockquote' },
             codeBlock: { icon: 'codeBlock', title: 'Code Block', action: 'insertCodeBlock' },
             
             // Formatting
@@ -522,7 +522,6 @@
             { value: 'h4', label: 'Heading 4' },
             { value: 'h5', label: 'Heading 5' },
             { value: 'h6', label: 'Heading 6' },
-            { value: 'blockquote', label: 'Blockquote' },
             { value: 'div', label: 'Div' },
             { value: 'pre', label: 'Preformatted' }
         ],
@@ -549,7 +548,6 @@
         // Block format options for menu
         blockFormatOptions: [
             { value: 'p', label: 'Paragraph' },
-            { value: 'blockquote', label: 'Blockquote' },
             { value: 'div', label: 'Div' },
             { value: 'pre', label: 'Pre' }
         ],
@@ -641,11 +639,13 @@
         },
         
         // Paste settings
+        // pasteMode options:
+        //   'plainText' - Always paste as plain text (default)
+        //   'formattedAndPlainText' - Show dialog to choose between formatted or plain text
+        pasteMode: 'plainText',
         pasteSettings: {
             cleanPaste: true,
-            stripStyles: false,
-            keepStructure: true,
-            showPasteDialog: true  // Show paste options dialog (like Word/Outlook)
+            keepStructure: true
         },
         
         // Auto-save
@@ -759,6 +759,12 @@
             // Auto-save setup
             if (this.options.autoSave.enabled) {
                 this.setupAutoSave();
+            }
+            
+            // Initialize disabled state
+            this.disabled = false;
+            if (this.options.disabled) {
+                this.disable();
             }
             
             // Trigger init event
@@ -959,26 +965,24 @@
                         { label: 'Copy', shortcut: 'Ctrl+C', command: 'copy' },
                         { label: 'Paste', shortcut: 'Ctrl+V', command: 'paste' },
                         { type: 'separator' },
-                        { 
-                            label: 'Show Paste Options Dialog', 
-                            type: 'toggle',
-                            id: 'showPasteDialog',
-                            checked: this.options.pasteSettings.showPasteDialog,
-                            action: () => this.togglePasteDialog()
-                        },
-                        { 
-                            label: 'Default: Keep Formatting', 
-                            type: 'toggle',
-                            id: 'pasteKeepFormatting',
-                            checked: !this.options.pasteSettings.stripStyles,
-                            action: () => this.setDefaultPasteMode('formatted')
-                        },
-                        { 
-                            label: 'Default: Plain Text', 
-                            type: 'toggle',
-                            id: 'pastePlainText',
-                            checked: this.options.pasteSettings.stripStyles,
-                            action: () => this.setDefaultPasteMode('plain')
+                        {
+                            label: 'Paste Mode',
+                            submenu: [
+                                { 
+                                    label: 'Plain Text', 
+                                    type: 'radio',
+                                    id: 'pasteModePlainText',
+                                    checked: this.options.pasteMode === 'plainText',
+                                    action: () => this.setPasteMode('plainText')
+                                },
+                                { 
+                                    label: 'Formatted and Plain Text', 
+                                    type: 'radio',
+                                    id: 'pasteModeFormatted',
+                                    checked: this.options.pasteMode === 'formattedAndPlainText',
+                                    action: () => this.setPasteMode('formattedAndPlainText')
+                                }
+                            ]
                         },
                         { type: 'separator' },
                         { label: 'Select All', shortcut: 'Ctrl+A', command: 'selectAll' }
@@ -2457,12 +2461,13 @@
                     html.includes('<span')
                 );
                 
-                // Show paste options dialog if enabled and content has formatting
-                if (this.options.pasteSettings.showPasteDialog && hasFormatting) {
+                // Handle paste based on pasteMode setting
+                if (this.options.pasteMode === 'formattedAndPlainText' && hasFormatting) {
+                    // Show paste options dialog
                     this.showPasteOptionsDialog(html, text);
                 } else {
-                    // Use default paste behavior
-                    this.executePaste(html, text, !this.options.pasteSettings.stripStyles);
+                    // plainText mode - always paste as plain text
+                    this.executePaste(html, text, false);
                 }
             }
         }
@@ -2477,6 +2482,19 @@
             // Remove existing dialog if any
             const existing = document.querySelector('.richeditor-paste-dialog');
             if (existing) existing.remove();
+            
+            // Get cursor position before creating dialog
+            let cursorRect = null;
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                cursorRect = range.getBoundingClientRect();
+            }
+            
+            // If no valid cursor position, use editor position
+            if (!cursorRect || cursorRect.top === 0) {
+                cursorRect = this.editor.getBoundingClientRect();
+            }
             
             // Create dialog
             const dialog = Utils.createElement('div', { className: 'richeditor-paste-dialog' });
@@ -2503,48 +2521,46 @@
                         </button>
                     </div>
                     <div class="richeditor-paste-dialog-footer">
-                        <label class="richeditor-paste-remember">
-                            <input type="checkbox" id="richeditor-paste-remember"> Remember my choice
-                        </label>
                         <button type="button" class="richeditor-paste-cancel">Cancel</button>
                     </div>
                 </div>
             `;
             
-            document.body.appendChild(dialog);
+            // Append to wrapper for proper positioning context
+            this.wrapper.appendChild(dialog);
             
-            // Position dialog near cursor or center
-            const selection = window.getSelection();
-            if (selection.rangeCount > 0) {
-                const range = selection.getRangeAt(0);
-                const rect = range.getBoundingClientRect();
-                const dialogContent = dialog.querySelector('.richeditor-paste-dialog-content');
-                
-                // Position below the cursor
-                if (rect.top > 0) {
-                    dialogContent.style.position = 'fixed';
-                    dialogContent.style.top = Math.min(rect.bottom + 10, window.innerHeight - 200) + 'px';
-                    dialogContent.style.left = Math.max(rect.left, 20) + 'px';
-                }
+            // Position dialog near cursor
+            const dialogContent = dialog.querySelector('.richeditor-paste-dialog-content');
+            const wrapperRect = this.wrapper.getBoundingClientRect();
+            
+            // Calculate position relative to wrapper
+            let top = cursorRect.bottom - wrapperRect.top + 10;
+            let left = cursorRect.left - wrapperRect.left;
+            
+            // Ensure dialog stays within viewport
+            const dialogWidth = 320; // Approximate width
+            const dialogHeight = 180; // Approximate height
+            
+            // Adjust if would go off right edge
+            if (left + dialogWidth > wrapperRect.width) {
+                left = Math.max(10, wrapperRect.width - dialogWidth - 10);
             }
+            
+            // Adjust if would go off bottom - show above cursor instead
+            if (top + dialogHeight > wrapperRect.height) {
+                top = cursorRect.top - wrapperRect.top - dialogHeight - 10;
+                if (top < 0) top = 10;
+            }
+            
+            dialogContent.style.position = 'absolute';
+            dialogContent.style.top = top + 'px';
+            dialogContent.style.left = left + 'px';
+            dialogContent.style.margin = '0';
             
             // Handle option clicks
             dialog.querySelectorAll('.richeditor-paste-option').forEach(option => {
                 option.addEventListener('click', () => {
                     const mode = option.dataset.mode;
-                    const remember = document.getElementById('richeditor-paste-remember').checked;
-                    
-                    // Remember choice if checked
-                    if (remember) {
-                        this.options.pasteSettings.showPasteDialog = false;
-                        this.options.pasteSettings.stripStyles = (mode === 'plain');
-                        
-                        // Update menu checkbox
-                        const checkbox = document.getElementById('richeditor-toggle-pasteAsPlainText');
-                        if (checkbox) {
-                            checkbox.innerHTML = mode === 'plain' ? '✓' : '';
-                        }
-                    }
                     
                     // Close dialog
                     dialog.remove();
@@ -2669,46 +2685,41 @@
         /**
          * Toggle paste options dialog on/off
          */
-        togglePasteDialog() {
-            this.options.pasteSettings.showPasteDialog = !this.options.pasteSettings.showPasteDialog;
+        /**
+         * Set paste mode
+         * @param {string} mode - 'plainText' or 'formattedAndPlainText'
+         */
+        setPasteMode(mode) {
+            if (mode !== 'plainText' && mode !== 'formattedAndPlainText') {
+                console.warn('Invalid paste mode. Use "plainText" or "formattedAndPlainText"');
+                return;
+            }
             
-            const status = this.options.pasteSettings.showPasteDialog ? 'Enabled' : 'Disabled';
-            this.showNotification(`Paste Options Dialog: ${status}`);
+            this.options.pasteMode = mode;
+            
+            // Update menu radio buttons
+            const plainTextRadio = document.getElementById('richeditor-toggle-pasteModePlainText');
+            const formattedRadio = document.getElementById('richeditor-toggle-pasteModeFormatted');
+            
+            if (plainTextRadio) {
+                plainTextRadio.innerHTML = mode === 'plainText' ? '●' : '';
+            }
+            if (formattedRadio) {
+                formattedRadio.innerHTML = mode === 'formattedAndPlainText' ? '●' : '';
+            }
+            
+            const modeText = mode === 'plainText' ? 'Plain Text' : 'Formatted and Plain Text';
+            this.showNotification(`Paste mode: ${modeText}`);
+            
+            this.triggerEvent('onPasteModeChange', { mode });
         }
 
         /**
-         * Set default paste mode
+         * Get current paste mode
+         * @returns {string} 'plainText' or 'formattedAndPlainText'
          */
-        setDefaultPasteMode(mode) {
-            const isPlain = (mode === 'plain');
-            this.options.pasteSettings.stripStyles = isPlain;
-            
-            // Update menu checkboxes
-            const keepFormattingCheckbox = document.getElementById('richeditor-toggle-pasteKeepFormatting');
-            const plainTextCheckbox = document.getElementById('richeditor-toggle-pastePlainText');
-            
-            if (keepFormattingCheckbox) {
-                keepFormattingCheckbox.innerHTML = isPlain ? '' : '✓';
-            }
-            if (plainTextCheckbox) {
-                plainTextCheckbox.innerHTML = isPlain ? '✓' : '';
-            }
-            
-            const modeText = isPlain ? 'Plain Text' : 'Keep Formatting';
-            this.showNotification(`Default paste mode: ${modeText}`);
-            
-            this.triggerEvent('onPasteModeChange', { 
-                stripStyles: isPlain,
-                mode: mode
-            });
-        }
-
-        /**
-         * Toggle paste mode between formatted and plain text (legacy)
-         */
-        togglePasteMode() {
-            const newMode = this.options.pasteSettings.stripStyles ? 'formatted' : 'plain';
-            this.setDefaultPasteMode(newMode);
+        getPasteMode() {
+            return this.options.pasteMode;
         }
 
         /**
@@ -2736,30 +2747,6 @@
                 notification.classList.remove('show');
                 setTimeout(() => notification.remove(), 300);
             }, duration);
-        }
-
-        /**
-         * Get current paste mode
-         */
-        getPasteMode() {
-            return this.options.pasteSettings.stripStyles ? 'plain' : 'formatted';
-        }
-
-        /**
-         * Set paste mode
-         */
-        setPasteMode(mode) {
-            if (mode === 'plain') {
-                this.options.pasteSettings.stripStyles = true;
-            } else if (mode === 'formatted') {
-                this.options.pasteSettings.stripStyles = false;
-            }
-            
-            // Update menu checkbox if it exists
-            const checkbox = document.getElementById('richeditor-toggle-pasteAsPlainText');
-            if (checkbox) {
-                checkbox.innerHTML = this.options.pasteSettings.stripStyles ? '✓' : '';
-            }
         }
 
         /**
@@ -4915,6 +4902,7 @@
             return `
                 /* RichEditor Styles */
                 .richeditor-wrapper {
+                    position: relative;
                     border: 1px solid #ddd;
                     border-radius: 4px;
                     background: #fff;
@@ -5090,25 +5078,23 @@
                 
                 /* Paste Options Dialog */
                 .richeditor-paste-dialog {
-                    position: fixed;
+                    position: absolute;
                     top: 0;
                     left: 0;
                     right: 0;
                     bottom: 0;
-                    background: rgba(0, 0, 0, 0.3);
-                    z-index: 100000;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    background: rgba(0, 0, 0, 0.2);
+                    z-index: 10000;
                 }
                 
                 .richeditor-paste-dialog-content {
                     background: white;
                     border-radius: 8px;
-                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
                     padding: 20px;
-                    min-width: 300px;
-                    max-width: 400px;
+                    min-width: 280px;
+                    max-width: 350px;
+                    z-index: 10001;
                 }
                 
                 .richeditor-paste-dialog-title {
@@ -5264,6 +5250,49 @@
                 .richeditor-toolbar.disabled .richeditor-toolbar-btn:not([data-action="toggleSourceView"]) {
                     opacity: 0.5;
                     pointer-events: none;
+                }
+                
+                /* Read Only Banner */
+                .richeditor-readonly-banner {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    padding: 8px 16px;
+                    background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+                    border-bottom: 1px solid #ffcc80;
+                    color: #e65100;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+                
+                .richeditor-readonly-banner svg {
+                    flex-shrink: 0;
+                }
+                
+                /* Disabled/Readonly States */
+                .richeditor-wrapper.disabled .richeditor-menubar {
+                    opacity: 0.6;
+                    pointer-events: none;
+                }
+                
+                .richeditor-wrapper.disabled .richeditor-toolbar {
+                    opacity: 0.6;
+                    pointer-events: none;
+                }
+                
+                .richeditor-wrapper.disabled .richeditor-editor {
+                    background: #f9f9f9;
+                    color: #666;
+                }
+                
+                .richeditor-wrapper.disabled .richeditor-statusbar {
+                    opacity: 0.7;
+                }
+                
+                .richeditor-wrapper.disabled .richeditor-resize {
+                    pointer-events: none;
+                    opacity: 0.3;
                 }
                 
                 .richeditor-toolbar-group {
@@ -5968,15 +5997,83 @@
          */
         enable() {
             this.editor.setAttribute('contenteditable', 'true');
-            this.wrapper.classList.remove('disabled');
+            this.wrapper.classList.remove('disabled', 'readonly');
+            
+            // Remove readonly banner if exists
+            const banner = this.wrapper.querySelector('.richeditor-readonly-banner');
+            if (banner) {
+                banner.remove();
+            }
+            
+            // Re-enable toolbar
+            if (this.toolbar) {
+                this.toolbar.classList.remove('disabled');
+            }
+            
+            // Re-enable menu bar
+            if (this.menuBar) {
+                this.menuBar.classList.remove('disabled');
+            }
+            
+            // Re-enable status bar interactions
+            if (this.statusBar) {
+                this.statusBar.classList.remove('disabled');
+            }
+            
+            this.disabled = false;
         }
 
         /**
-         * Disable the editor
+         * Disable the editor (read-only mode)
          */
         disable() {
             this.editor.setAttribute('contenteditable', 'false');
-            this.wrapper.classList.add('disabled');
+            this.wrapper.classList.add('disabled', 'readonly');
+            
+            // Add readonly banner if not exists
+            if (!this.wrapper.querySelector('.richeditor-readonly-banner')) {
+                const banner = Utils.createElement('div', {
+                    className: 'richeditor-readonly-banner'
+                });
+                banner.innerHTML = `
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                        <path fill="currentColor" d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
+                    </svg>
+                    <span>Read Only</span>
+                `;
+                
+                // Insert banner at the top of the container (after menu/toolbar, before editor)
+                const container = this.wrapper.querySelector('.richeditor-container');
+                if (container) {
+                    container.insertBefore(banner, container.firstChild);
+                } else {
+                    this.wrapper.insertBefore(banner, this.editor);
+                }
+            }
+            
+            // Disable toolbar
+            if (this.toolbar) {
+                this.toolbar.classList.add('disabled');
+            }
+            
+            // Disable menu bar
+            if (this.menuBar) {
+                this.menuBar.classList.add('disabled');
+            }
+            
+            // Disable status bar interactions
+            if (this.statusBar) {
+                this.statusBar.classList.add('disabled');
+            }
+            
+            this.disabled = true;
+        }
+        
+        /**
+         * Check if editor is disabled
+         */
+        isDisabled() {
+            return this.disabled === true;
         }
 
         /**
